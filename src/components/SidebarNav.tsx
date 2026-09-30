@@ -62,7 +62,7 @@ export const SidebarNav: React.FC<SidebarNavProps> = ({
   ];
 
   return (
-    <aside className="w-18 bg-zinc-950 border-r border-zinc-800/80 flex flex-col items-center py-2.5 shrink-0 select-none z-20">
+    <aside className="hidden md:flex w-18 bg-zinc-950 border-r border-zinc-800/80 flex-col items-center py-2.5 shrink-0 select-none z-20">
       <div className="flex flex-col items-center gap-1 w-full px-1.5">
         {tabs.map((tab) => {
           const isActive = activeTab === tab.id;

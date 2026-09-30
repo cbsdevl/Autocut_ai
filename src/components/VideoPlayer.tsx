@@ -257,7 +257,8 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       {/* Video Stage Canvas */}
       <div
         ref={containerRef}
-        className="flex-1 relative flex items-center justify-center p-3 md:p-6 bg-radial from-zinc-900 to-zinc-950 overflow-hidden"
+        onClick={onTogglePlay}
+        className="flex-1 relative flex items-center justify-center p-2 sm:p-3 md:p-6 bg-radial from-zinc-900 to-zinc-950 overflow-hidden cursor-pointer"
       >
         {/* Frame Container */}
         <div
@@ -481,44 +482,46 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       </div>
 
       {/* Video Transport & Player Control Bar */}
-      <div className="h-12 bg-zinc-950 border-t border-zinc-800/80 px-4 flex items-center justify-between z-20 shrink-0">
+      <div className="h-12 bg-zinc-950 border-t border-zinc-800/80 px-2 sm:px-4 flex items-center justify-between z-20 shrink-0 select-none">
         {/* Left: Timecode + Step frame */}
-        <div className="flex items-center gap-2">
-          <div className="font-mono text-xs font-bold text-zinc-100 flex items-center gap-1.5 bg-zinc-900 px-2.5 py-1 rounded-md border border-zinc-800">
-            <span className="text-amber-400">{formatTimecode(currentTime, true, project.frameRate)}</span>
+        <div className="flex items-center gap-1 sm:gap-1.5">
+          <div className="font-mono text-[10px] sm:text-xs font-bold text-zinc-100 flex items-center gap-1 sm:gap-1.5 bg-zinc-900 px-1.5 sm:px-2.5 py-1 rounded-md border border-zinc-800">
+            <span className="text-amber-400 sm:hidden">{formatTimecode(currentTime, false)}</span>
+            <span className="text-amber-400 hidden sm:inline">{formatTimecode(currentTime, true, project.frameRate)}</span>
             <span className="text-zinc-600">/</span>
-            <span className="text-zinc-400">{formatTimecode(totalDuration, true, project.frameRate)}</span>
+            <span className="text-zinc-400 sm:hidden">{formatTimecode(totalDuration, false)}</span>
+            <span className="text-zinc-400 hidden sm:inline">{formatTimecode(totalDuration, true, project.frameRate)}</span>
           </div>
 
           <button
             onClick={() => onStepFrame(-1)}
             title="Step Back 1 Frame (,)"
-            className="p-1 rounded hover:bg-zinc-800 text-zinc-400 hover:text-zinc-200 transition"
+            className="p-1.5 rounded hover:bg-zinc-800 text-zinc-400 hover:text-zinc-200 transition min-w-[32px] min-h-[32px] flex items-center justify-center active:scale-95"
           >
             <SkipBack className="w-3.5 h-3.5" />
           </button>
           <button
             onClick={() => onStepFrame(1)}
             title="Step Forward 1 Frame (.)"
-            className="p-1 rounded hover:bg-zinc-800 text-zinc-400 hover:text-zinc-200 transition"
+            className="p-1.5 rounded hover:bg-zinc-800 text-zinc-400 hover:text-zinc-200 transition min-w-[32px] min-h-[32px] flex items-center justify-center active:scale-95"
           >
             <SkipForward className="w-3.5 h-3.5" />
           </button>
         </div>
 
-        {/* Center: Play / Pause button */}
-        <div className="flex items-center gap-3">
+        {/* Center: Play / Pause button & Speed */}
+        <div className="flex items-center gap-1.5 sm:gap-3">
           <button
             onClick={() => onSeek(0)}
             title="Jump to Start"
-            className="p-1.5 rounded-lg hover:bg-zinc-800 text-zinc-400 hover:text-white transition"
+            className="p-1.5 rounded-lg hover:bg-zinc-800 text-zinc-400 hover:text-white transition min-w-[32px] min-h-[32px] flex items-center justify-center active:scale-95"
           >
-            <RotateCcw className="w-4 h-4" />
+            <RotateCcw className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
           </button>
 
           <button
             onClick={onTogglePlay}
-            className="w-9 h-9 rounded-full bg-white hover:bg-zinc-200 text-zinc-950 flex items-center justify-center shadow-lg transition transform hover:scale-105"
+            className="w-9 h-9 sm:w-10 sm:h-10 rounded-full bg-white hover:bg-zinc-200 text-zinc-950 flex items-center justify-center shadow-lg transition transform hover:scale-105 active:scale-95 min-w-[36px] min-h-[36px]"
             title="Play / Pause (Spacebar)"
           >
             {isPlaying ? (
@@ -535,7 +538,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
               const spd = parseFloat(e.target.value);
               setPlaybackSpeed(spd);
             }}
-            className="bg-zinc-900 text-zinc-300 text-[11px] font-mono border border-zinc-800 rounded px-1.5 py-1 focus:outline-none cursor-pointer"
+            className="bg-zinc-900 text-zinc-300 text-[10px] sm:text-[11px] font-mono border border-zinc-800 rounded px-1.5 py-1 focus:outline-none cursor-pointer min-h-[32px]"
             title="Playback Speed"
           >
             <option value="0.5">0.5x</option>
@@ -547,14 +550,14 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
           </select>
         </div>
 
-        {/* Right: Volume + Fit + Fullscreen */}
-        <div className="flex items-center gap-3">
-          <span className="text-[10px] font-mono text-zinc-400 bg-zinc-900 border border-zinc-800 px-2 py-0.5 rounded">
+        {/* Right: Aspect ratio + Volume + Fullscreen */}
+        <div className="flex items-center gap-1.5 sm:gap-3">
+          <span className="hidden sm:inline text-[10px] font-mono text-zinc-400 bg-zinc-900 border border-zinc-800 px-2 py-0.5 rounded">
             {project.aspectRatio}
           </span>
 
-          {/* Fit Selector (contain, cover, fill) */}
-          <div className="flex items-center bg-zinc-900 border border-zinc-800 rounded-md p-0.5 text-[10px] font-medium text-zinc-400">
+          {/* Fit Selector (contain, cover, fill) - Desktop only */}
+          <div className="hidden md:flex items-center bg-zinc-900 border border-zinc-800 rounded-md p-0.5 text-[10px] font-medium text-zinc-400">
             {(["contain", "cover", "fit"] as const).map((m) => (
               <button
                 key={m}
@@ -568,8 +571,8 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
             ))}
           </div>
 
-          {/* Volume Slider */}
-          <div className="flex items-center gap-1.5">
+          {/* Volume Slider - Large screen only */}
+          <div className="hidden lg:flex items-center gap-1.5">
             <button
               onClick={() => setIsMuted(!isMuted)}
               className="p-1 text-zinc-400 hover:text-white transition"
@@ -598,7 +601,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
           {/* Fullscreen Button */}
           <button
             onClick={toggleFullscreen}
-            className="p-1.5 rounded hover:bg-zinc-800 text-zinc-400 hover:text-white transition"
+            className="p-1 sm:p-1.5 rounded hover:bg-zinc-800 text-zinc-400 hover:text-white transition"
             title="Toggle Fullscreen"
           >
             {isFullscreen ? <Minimize className="w-4 h-4" /> : <Maximize className="w-4 h-4" />}

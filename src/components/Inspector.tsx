@@ -12,6 +12,7 @@ import {
   Sparkles,
   Info,
   Film,
+  ChevronLeft,
 } from "lucide-react";
 import { MediaItem, ProjectSettings, TimelineClip, TimelineTrack } from "../types";
 import { formatTimecode } from "../utils/mediaUtils";
@@ -26,6 +27,7 @@ interface InspectorProps {
   onDuplicateClip: (clipId: string) => void;
   onDeleteClip: (clipId: string) => void;
   onUpdateProject: (updates: Partial<ProjectSettings>) => void;
+  onBackToStudio?: () => void;
 }
 
 export const Inspector: React.FC<InspectorProps> = ({
@@ -38,15 +40,28 @@ export const Inspector: React.FC<InspectorProps> = ({
   onDuplicateClip,
   onDeleteClip,
   onUpdateProject,
+  onBackToStudio,
 }) => {
   const media = selectedClip ? mediaItems.find((m) => m.id === selectedClip.mediaId) : null;
 
   if (!selectedClip) {
     return (
-      <div className="w-72 bg-zinc-950 border-l border-zinc-800/80 p-3.5 flex flex-col h-full select-none shrink-0 overflow-y-auto">
-        <div className="flex items-center gap-1.5 pb-3 border-b border-zinc-800">
-          <Film className="w-4 h-4 text-amber-400" />
-          <h3 className="text-xs font-bold text-zinc-200 uppercase tracking-wider">Project Inspector</h3>
+      <div className="w-full lg:w-72 bg-zinc-950 lg:border-l border-zinc-800/80 p-3.5 flex flex-col h-full select-none shrink-0 overflow-y-auto">
+        <div className="flex items-center gap-2 pb-3 border-b border-zinc-800">
+          {onBackToStudio && (
+            <button
+              onClick={onBackToStudio}
+              className="md:hidden flex items-center gap-0.5 text-xs font-bold text-amber-400 bg-amber-500/10 hover:bg-amber-500/20 px-2 py-1 rounded-lg border border-amber-500/30 transition active:scale-95 min-h-[32px]"
+              title="Return to Studio (Preview Player & Timeline)"
+            >
+              <ChevronLeft className="w-4 h-4" />
+              <span>Studio</span>
+            </button>
+          )}
+          <div className="flex items-center gap-1.5">
+            <Film className="w-4 h-4 text-amber-400" />
+            <h3 className="text-xs font-bold text-zinc-200 uppercase tracking-wider">Project Inspector</h3>
+          </div>
         </div>
 
         <div className="space-y-4 py-4 text-xs">
@@ -113,16 +128,28 @@ export const Inspector: React.FC<InspectorProps> = ({
   }
 
   return (
-    <div className="w-72 bg-zinc-950 border-l border-zinc-800/80 p-3.5 flex flex-col h-full select-none shrink-0 overflow-y-auto">
+    <div className="w-full lg:w-72 bg-zinc-950 lg:border-l border-zinc-800/80 p-3.5 flex flex-col h-full select-none shrink-0 overflow-y-auto">
       {/* Header */}
       <div className="flex items-center justify-between pb-3 border-b border-zinc-800">
-        <div className="flex items-center gap-1.5 min-w-0">
-          <Sliders className="w-4 h-4 text-amber-400 shrink-0" />
-          <h3 className="text-xs font-bold text-zinc-200 uppercase tracking-wider truncate">
-            Clip Inspector
-          </h3>
+        <div className="flex items-center gap-2 min-w-0">
+          {onBackToStudio && (
+            <button
+              onClick={onBackToStudio}
+              className="md:hidden flex items-center gap-0.5 text-xs font-bold text-amber-400 bg-amber-500/10 hover:bg-amber-500/20 px-2 py-1 rounded-lg border border-amber-500/30 transition active:scale-95 min-h-[32px] shrink-0"
+              title="Return to Studio (Preview Player & Timeline)"
+            >
+              <ChevronLeft className="w-4 h-4" />
+              <span>Studio</span>
+            </button>
+          )}
+          <div className="flex items-center gap-1.5 min-w-0">
+            <Sliders className="w-4 h-4 text-amber-400 shrink-0" />
+            <h3 className="text-xs font-bold text-zinc-200 uppercase tracking-wider truncate">
+              Clip Inspector
+            </h3>
+          </div>
         </div>
-        <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-zinc-900 text-zinc-400 border border-zinc-800">
+        <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-zinc-900 text-zinc-400 border border-zinc-800 shrink-0">
           {selectedClip.trackType}
         </span>
       </div>

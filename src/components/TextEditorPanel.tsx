@@ -1,17 +1,19 @@
 import React, { useState } from "react";
-import { Type, Plus, AlignCenter, Palette, Sparkles, Check } from "lucide-react";
+import { Type, Plus, AlignCenter, Palette, Sparkles, Check, ChevronLeft } from "lucide-react";
 import { TextStyle, TimelineClip } from "../types";
 
 interface TextEditorPanelProps {
   onAddTextToTimeline: (text: string, style: TextStyle) => void;
   selectedClip: TimelineClip | null;
   onUpdateSelectedClip: (updates: Partial<TimelineClip>) => void;
+  onBackToStudio?: () => void;
 }
 
 export const TextEditorPanel: React.FC<TextEditorPanelProps> = ({
   onAddTextToTimeline,
   selectedClip,
   onUpdateSelectedClip,
+  onBackToStudio,
 }) => {
   const [inputText, setInputText] = useState("NEW TITLE");
   const [fontSize, setFontSize] = useState(28);
@@ -100,15 +102,27 @@ export const TextEditorPanel: React.FC<TextEditorPanelProps> = ({
   };
 
   return (
-    <div className="flex flex-col h-full bg-zinc-900/60 border-r border-zinc-800/80 w-80 md:w-96 select-none shrink-0 overflow-hidden">
+    <div className="flex flex-col h-full bg-zinc-900/60 border-r border-zinc-800/80 w-full md:w-80 lg:w-96 select-none shrink-0 overflow-hidden">
       {/* Header */}
-      <div className="p-3 border-b border-zinc-800 flex items-center justify-between">
-        <div>
-          <h2 className="text-xs font-bold uppercase tracking-wider text-zinc-300 flex items-center gap-1.5">
-            <Type className="w-3.5 h-3.5 text-amber-400" />
-            Titles & Graphic Overlays
-          </h2>
-          <p className="text-[10px] text-zinc-500">Lower thirds, headlines, and call-to-actions</p>
+      <div className="p-2.5 sm:p-3 border-b border-zinc-800 flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          {onBackToStudio && (
+            <button
+              onClick={onBackToStudio}
+              className="md:hidden flex items-center gap-0.5 text-xs font-bold text-amber-400 bg-amber-500/10 hover:bg-amber-500/20 px-2 py-1 rounded-lg border border-amber-500/30 transition active:scale-95 min-h-[32px]"
+              title="Return to Studio (Preview Player & Timeline)"
+            >
+              <ChevronLeft className="w-4 h-4" />
+              <span>Studio</span>
+            </button>
+          )}
+          <div>
+            <h2 className="text-xs font-bold uppercase tracking-wider text-zinc-300 flex items-center gap-1.5">
+              <Type className="w-3.5 h-3.5 text-amber-400" />
+              Titles & Graphic Overlays
+            </h2>
+            <p className="text-[10px] text-zinc-500">Lower thirds, headlines, and call-to-actions</p>
+          </div>
         </div>
       </div>
 

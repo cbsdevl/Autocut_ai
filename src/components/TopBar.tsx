@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useRef, useEffect } from "react";
 import {
   Sparkles,
   Download,
@@ -14,6 +14,9 @@ import {
   Settings,
   HelpCircle,
   Trash2,
+  MoreVertical,
+  Sliders,
+  Check,
 } from "lucide-react";
 import { AspectRatio, MediaItem, ProjectSettings } from "../types";
 
@@ -54,6 +57,23 @@ export const TopBar: React.FC<TopBarProps> = ({
 }) => {
   const [isEditingTitle, setIsEditingTitle] = useState(false);
   const [titleInput, setTitleInput] = useState(project.name);
+  const [showMobileMenu, setShowMobileMenu] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  // Close mobile menu on click outside
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+        setShowMobileMenu(false);
+      }
+    };
+    if (showMobileMenu) {
+      document.addEventListener("mousedown", handleClickOutside);
+    }
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside);
+    };
+  }, [showMobileMenu]);
 
   // Calculate copyright risk indicator
   const hasHighRisk = mediaItems.some((m) => m.riskLevel === "High");
@@ -69,24 +89,22 @@ export const TopBar: React.FC<TopBarProps> = ({
   };
 
   return (
-    <header className="h-14 bg-zinc-950 border-b border-zinc-800/80 px-3 flex items-center justify-between select-none z-30 shrink-0">
-      {/* Left: Brand + Project Name + Project Actions */}
-      <div className="flex items-center gap-3">
-        <div className="flex items-center gap-2 pr-2 border-r border-zinc-800">
-          <div className="w-8 h-8 rounded-lg bg-gradient-to-tr from-amber-500 via-rose-500 to-indigo-600 p-[1.5px] shadow-sm flex items-center justify-center">
+    <header className="h-13 md:h-14 bg-zinc-950 border-b border-zinc-800/80 px-2 sm:px-3 flex items-center justify-between select-none z-30 shrink-0 relative">
+      {/* Left: Brand + Project Title + Aspect Ratio */}
+      <div className="flex items-center gap-1.5 sm:gap-2.5 min-w-0">
+        <div className="flex items-center gap-1.5 pr-1.5 sm:pr-2 border-r border-zinc-800/80 shrink-0">
+          <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-lg bg-gradient-to-tr from-amber-500 via-rose-500 to-indigo-600 p-[1.5px] shadow-sm flex items-center justify-center">
             <div className="w-full h-full bg-zinc-950 rounded-[7px] flex items-center justify-center">
-              <Film className="w-4 h-4 text-amber-400" />
+              <Film className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-amber-400" />
             </div>
           </div>
-          <div className="leading-tight">
-            <span className="text-sm font-black tracking-tight text-zinc-100 flex items-center gap-1.5">
-              AutoCut <span className="text-xs px-1.5 py-0.2 rounded bg-indigo-500/20 text-indigo-400 font-bold border border-indigo-500/30">AI</span>
-            </span>
-          </div>
+          <span className="text-xs sm:text-sm font-black tracking-tight text-zinc-100 hidden xs:inline">
+            AutoCut
+          </span>
         </div>
 
-        {/* Project Title Input */}
-        <div className="flex items-center gap-2">
+        {/* Project Title Input / Display */}
+        <div className="flex items-center gap-1.5 min-w-0">
           {isEditingTitle ? (
             <input
               type="text"
@@ -95,7 +113,7 @@ export const TopBar: React.FC<TopBarProps> = ({
               onChange={(e) => setTitleInput(e.target.value)}
               onBlur={handleTitleSubmit}
               onKeyDown={(e) => e.key === "Enter" && handleTitleSubmit()}
-              className="bg-zinc-900 border border-zinc-700 rounded px-2.5 py-1 text-xs text-zinc-100 font-semibold focus:outline-none focus:ring-1 focus:ring-amber-500 max-w-[200px]"
+              className="bg-zinc-900 border border-zinc-700 rounded px-2 py-1 text-xs text-zinc-100 font-semibold focus:outline-none focus:ring-1 focus:ring-amber-500 w-28 sm:w-36 md:w-44"
             />
           ) : (
             <button
@@ -104,7 +122,7 @@ export const TopBar: React.FC<TopBarProps> = ({
                 setIsEditingTitle(true);
               }}
               title="Click to rename project"
-              className="text-xs font-semibold text-zinc-200 hover:text-white px-2 py-1 rounded hover:bg-zinc-900 transition flex items-center gap-1.5 max-w-[220px] truncate"
+              className="text-xs font-semibold text-zinc-200 hover:text-white px-1.5 py-1 rounded hover:bg-zinc-900 transition truncate max-w-[90px] sm:max-w-[140px] md:max-w-[200px]"
             >
               <span className="truncate">{project.name}</span>
             </button>
@@ -114,21 +132,20 @@ export const TopBar: React.FC<TopBarProps> = ({
           <select
             value={project.aspectRatio}
             onChange={(e) => onUpdateProject({ aspectRatio: e.target.value as AspectRatio })}
-            className="bg-zinc-900 hover:bg-zinc-850 text-[11px] font-medium text-zinc-300 border border-zinc-800 rounded px-2 py-1 focus:outline-none focus:border-zinc-600 transition cursor-pointer"
+            className="bg-zinc-900 hover:bg-zinc-850 text-[10px] sm:text-[11px] font-medium text-zinc-300 border border-zinc-800 rounded px-1.5 sm:px-2 py-1 focus:outline-none focus:border-zinc-600 transition cursor-pointer shrink-0"
           >
-            <option value="16:9">16:9 (YouTube Landscape)</option>
-            <option value="9:16">9:16 (Shorts & Reels)</option>
-            <option value="1:1">1:1 (Square)</option>
-            <option value="custom">Custom</option>
+            <option value="16:9">16:9</option>
+            <option value="9:16">9:16</option>
+            <option value="1:1">1:1</option>
           </select>
 
-          {/* Resolution Badge */}
-          <span className="text-[11px] font-mono px-2 py-0.5 rounded bg-zinc-900 border border-zinc-800/80 text-zinc-400">
+          {/* Resolution Badge - Desktop only */}
+          <span className="hidden xl:inline text-[11px] font-mono px-2 py-0.5 rounded bg-zinc-900 border border-zinc-800/80 text-zinc-400 shrink-0">
             {project.resolution} • {project.frameRate}fps
           </span>
 
-          {/* Autosave status indicator */}
-          <div className="hidden lg:flex items-center gap-1.5 text-[11px] text-zinc-500 pl-2">
+          {/* Autosave status indicator - Desktop only */}
+          <div className="hidden lg:flex items-center gap-1.5 text-[11px] text-zinc-500 pl-1 shrink-0">
             {isSaving ? (
               <span className="flex items-center gap-1 text-amber-400">
                 <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse" />
@@ -145,50 +162,54 @@ export const TopBar: React.FC<TopBarProps> = ({
       </div>
 
       {/* Center: Undo/Redo & Quick Actions */}
-      <div className="flex items-center gap-1 bg-zinc-900/80 border border-zinc-800/80 rounded-lg p-0.5">
+      <div className="flex items-center gap-0.5 sm:gap-1 bg-zinc-900/80 border border-zinc-800/80 rounded-lg p-0.5 shrink-0 mx-0.5 sm:mx-1">
         <button
           onClick={onUndo}
           disabled={!canUndo}
           title="Undo (Ctrl+Z)"
-          className="p-1.5 rounded hover:bg-zinc-800 text-zinc-400 hover:text-zinc-200 disabled:opacity-30 disabled:pointer-events-none transition"
+          className="p-1.5 sm:p-2 rounded hover:bg-zinc-800 text-zinc-400 hover:text-zinc-200 disabled:opacity-30 disabled:pointer-events-none transition min-w-[36px] min-h-[36px] flex items-center justify-center active:scale-95"
         >
-          <RotateCcw className="w-4 h-4" />
+          <RotateCcw className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
         </button>
         <button
           onClick={onRedo}
           disabled={!canRedo}
           title="Redo (Ctrl+Shift+Z)"
-          className="p-1.5 rounded hover:bg-zinc-800 text-zinc-400 hover:text-zinc-200 disabled:opacity-30 disabled:pointer-events-none transition"
+          className="p-1.5 sm:p-2 rounded hover:bg-zinc-800 text-zinc-400 hover:text-zinc-200 disabled:opacity-30 disabled:pointer-events-none transition min-w-[36px] min-h-[36px] flex items-center justify-center active:scale-95"
         >
-          <RotateCw className="w-4 h-4" />
+          <RotateCw className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
         </button>
-        <div className="w-[1px] h-4 bg-zinc-800 mx-1" />
-        <button
-          onClick={onOpenNewProject}
-          title="New Project"
-          className="flex items-center gap-1 text-[11px] font-medium text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800 px-2 py-1 rounded transition"
-        >
-          <Plus className="w-3.5 h-3.5" />
-          <span className="hidden md:inline">New</span>
-        </button>
-        {onClearAllData && (
+
+        {/* Desktop extra action buttons */}
+        <div className="hidden md:flex items-center">
+          <div className="w-[1px] h-4 bg-zinc-800 mx-1" />
           <button
-            onClick={onClearAllData}
-            title="Clear All Data (Blank Workspace)"
-            className="flex items-center gap-1 text-[11px] font-medium text-zinc-400 hover:text-rose-300 hover:bg-rose-950/40 px-2 py-1 rounded transition"
+            onClick={onOpenNewProject}
+            title="New Project"
+            className="flex items-center gap-1 text-[11px] font-medium text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800 px-2 py-1 rounded transition min-h-[32px]"
           >
-            <Trash2 className="w-3.5 h-3.5" />
-            <span className="hidden md:inline">Clear</span>
+            <Plus className="w-3.5 h-3.5" />
+            <span>New</span>
           </button>
-        )}
+          {onClearAllData && (
+            <button
+              onClick={onClearAllData}
+              title="Clear All Data (Blank Workspace)"
+              className="flex items-center gap-1 text-[11px] font-medium text-zinc-400 hover:text-rose-300 hover:bg-rose-950/40 px-2 py-1 rounded transition min-h-[32px]"
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+              <span>Clear</span>
+            </button>
+          )}
+        </div>
       </div>
 
-      {/* Right: Copyright Safety Status + AI Auto Edit + Export Button */}
-      <div className="flex items-center gap-2">
-        {/* Copyright Safety Badge Button */}
+      {/* Right: AI Auto Edit + Export Button + Mobile Menu */}
+      <div className="flex items-center gap-1 sm:gap-2 shrink-0">
+        {/* Copyright Safety Badge Button - Desktop only */}
         <button
           onClick={() => onSelectTab("copyright")}
-          className={`flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1.5 rounded-lg border transition ${
+          className={`hidden sm:flex items-center gap-1.5 text-xs font-semibold px-2 py-1.5 rounded-lg border transition ${
             hasHighRisk
               ? "bg-rose-950/40 border-rose-600/60 text-rose-300 hover:bg-rose-900/50"
               : hasMediumRisk
@@ -200,17 +221,17 @@ export const TopBar: React.FC<TopBarProps> = ({
           {hasHighRisk ? (
             <>
               <ShieldAlert className="w-3.5 h-3.5 text-rose-400 animate-pulse" />
-              <span className="hidden sm:inline">Copyright Warning</span>
+              <span className="hidden md:inline">Copyright Warning</span>
             </>
           ) : hasMediumRisk ? (
             <>
               <ShieldAlert className="w-3.5 h-3.5 text-amber-400" />
-              <span className="hidden sm:inline">Verify Rights</span>
+              <span className="hidden md:inline">Verify Rights</span>
             </>
           ) : (
             <>
               <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
-              <span className="hidden sm:inline">Copyright Safety</span>
+              <span className="hidden md:inline">Copyright Safety</span>
             </>
           )}
         </button>
@@ -218,22 +239,97 @@ export const TopBar: React.FC<TopBarProps> = ({
         {/* AI Auto Edit Button */}
         <button
           onClick={onOpenAIAutoEdit}
-          className="flex items-center gap-1.5 text-xs font-bold px-3 py-1.5 rounded-lg bg-gradient-to-r from-amber-500 via-rose-500 to-indigo-600 hover:from-amber-400 hover:via-rose-400 hover:to-indigo-500 text-white shadow-md shadow-rose-950/50 transition cursor-pointer"
+          className="flex items-center gap-1 text-xs font-bold px-2 sm:px-3 py-1.5 rounded-lg bg-gradient-to-r from-amber-500 via-rose-500 to-indigo-600 hover:from-amber-400 hover:via-rose-400 hover:to-indigo-500 text-white shadow-md shadow-rose-950/50 transition cursor-pointer min-h-[36px] active:scale-95"
           title="Run AI Automatic Editing"
         >
-          <Sparkles className="w-3.5 h-3.5 text-amber-200 fill-amber-200 animate-pulse" />
-          <span>AI Auto Edit</span>
+          <Sparkles className="w-3.5 h-3.5 text-amber-200 fill-amber-200 animate-pulse shrink-0" />
+          <span className="hidden sm:inline">AI Auto Cut</span>
         </button>
 
         {/* Export for YouTube Button */}
         <button
           onClick={onOpenExport}
-          className="flex items-center gap-1.5 text-xs font-bold px-3.5 py-1.5 rounded-lg bg-zinc-100 hover:bg-white text-zinc-950 shadow transition cursor-pointer"
+          className="flex items-center gap-1 text-xs font-bold px-2.5 sm:px-3.5 py-1.5 rounded-lg bg-zinc-100 hover:bg-white text-zinc-950 shadow transition cursor-pointer min-h-[36px] active:scale-95"
           title="Export Video for YouTube"
         >
           <Download className="w-3.5 h-3.5 text-zinc-950 stroke-[2.5]" />
           <span>Export</span>
         </button>
+
+        {/* Mobile Overflow Menu Toggle */}
+        <div className="relative md:hidden" ref={menuRef}>
+          <button
+            onClick={() => setShowMobileMenu(!showMobileMenu)}
+            className="p-1.5 rounded-lg bg-zinc-900 border border-zinc-800 text-zinc-300 hover:text-white transition min-w-[36px] min-h-[36px] flex items-center justify-center active:scale-95"
+            title="More Options"
+          >
+            <MoreVertical className="w-4 h-4" />
+          </button>
+
+          {showMobileMenu && (
+            <div className="absolute right-0 top-full mt-1.5 w-52 bg-zinc-900 border border-zinc-800 rounded-xl shadow-2xl py-1.5 z-50 text-xs">
+              <button
+                onClick={() => {
+                  setShowMobileMenu(false);
+                  onOpenNewProject();
+                }}
+                className="w-full text-left px-3 py-2.5 text-zinc-200 hover:bg-zinc-800 flex items-center gap-2.5"
+              >
+                <Plus className="w-4 h-4 text-emerald-400" />
+                <span>New Project</span>
+              </button>
+
+              <button
+                onClick={() => {
+                  setShowMobileMenu(false);
+                  onOpenAIAutoEdit();
+                }}
+                className="w-full text-left px-3 py-2.5 text-zinc-200 hover:bg-zinc-800 flex items-center gap-2.5"
+              >
+                <Sparkles className="w-4 h-4 text-amber-400" />
+                <span>AI Auto Cut & Remix</span>
+              </button>
+
+              <button
+                onClick={() => {
+                  setShowMobileMenu(false);
+                  onOpenQualityCheck();
+                }}
+                className="w-full text-left px-3 py-2.5 text-zinc-200 hover:bg-zinc-800 flex items-center gap-2.5"
+              >
+                <CheckCircle2 className="w-4 h-4 text-indigo-400" />
+                <span>AI Quality Check</span>
+              </button>
+
+              <button
+                onClick={() => {
+                  setShowMobileMenu(false);
+                  onSelectTab("copyright");
+                }}
+                className="w-full text-left px-3 py-2.5 text-zinc-200 hover:bg-zinc-800 flex items-center gap-2.5"
+              >
+                <ShieldCheck className="w-4 h-4 text-amber-400" />
+                <span>Copyright Safety Center</span>
+              </button>
+
+              {onClearAllData && (
+                <>
+                  <div className="h-[1px] bg-zinc-800 my-1" />
+                  <button
+                    onClick={() => {
+                      setShowMobileMenu(false);
+                      onClearAllData();
+                    }}
+                    className="w-full text-left px-3 py-2.5 text-rose-400 hover:bg-rose-950/40 flex items-center gap-2.5"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                    <span>Clear Workspace</span>
+                  </button>
+                </>
+              )}
+            </div>
+          )}
+        </div>
       </div>
     </header>
   );

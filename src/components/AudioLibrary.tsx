@@ -9,6 +9,7 @@ import {
   ExternalLink,
   Volume2,
   Sparkles,
+  ChevronLeft,
 } from "lucide-react";
 import { MediaItem } from "../types";
 import { ROYALTY_FREE_LIBRARY } from "../data/presets";
@@ -17,11 +18,13 @@ import { formatTimecode } from "../utils/mediaUtils";
 interface AudioLibraryProps {
   onAddMediaToProject: (media: MediaItem) => void;
   onAddToTimeline: (media: MediaItem, targetTrack?: string) => void;
+  onBackToStudio?: () => void;
 }
 
 export const AudioLibrary: React.FC<AudioLibraryProps> = ({
   onAddMediaToProject,
   onAddToTimeline,
+  onBackToStudio,
 }) => {
   const [playingId, setPlayingId] = useState<string | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
@@ -73,15 +76,27 @@ export const AudioLibrary: React.FC<AudioLibraryProps> = ({
   };
 
   return (
-    <div className="flex flex-col h-full bg-zinc-900/60 border-r border-zinc-800/80 w-80 md:w-96 select-none shrink-0 overflow-hidden">
+    <div className="flex flex-col h-full bg-zinc-900/60 border-r border-zinc-800/80 w-full md:w-80 lg:w-96 select-none shrink-0 overflow-hidden">
       {/* Audio Header */}
-      <div className="p-3 border-b border-zinc-800 flex items-center justify-between">
-        <div>
-          <h2 className="text-xs font-bold uppercase tracking-wider text-zinc-300 flex items-center gap-1.5">
-            <Music className="w-3.5 h-3.5 text-rose-400" />
-            Royalty-Free Audio
-          </h2>
-          <p className="text-[10px] text-zinc-500">100% Cleared Music & Soundtracks</p>
+      <div className="p-2.5 sm:p-3 border-b border-zinc-800 flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          {onBackToStudio && (
+            <button
+              onClick={onBackToStudio}
+              className="md:hidden flex items-center gap-0.5 text-xs font-bold text-amber-400 bg-amber-500/10 hover:bg-amber-500/20 px-2 py-1 rounded-lg border border-amber-500/30 transition active:scale-95 min-h-[32px]"
+              title="Return to Studio (Preview Player & Timeline)"
+            >
+              <ChevronLeft className="w-4 h-4" />
+              <span>Studio</span>
+            </button>
+          )}
+          <div>
+            <h2 className="text-xs font-bold uppercase tracking-wider text-zinc-300 flex items-center gap-1.5">
+              <Music className="w-3.5 h-3.5 text-rose-400" />
+              Royalty-Free Audio
+            </h2>
+            <p className="text-[10px] text-zinc-500">100% Cleared Music & Soundtracks</p>
+          </div>
         </div>
         <div className="flex items-center gap-1 text-[10px] font-semibold text-emerald-400 bg-emerald-950/40 px-2 py-1 rounded border border-emerald-800/40">
           <ShieldCheck className="w-3 h-3" />

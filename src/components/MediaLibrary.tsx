@@ -15,6 +15,7 @@ import {
   Info,
   Check,
   X,
+  ChevronLeft,
 } from "lucide-react";
 import { formatBytes, formatTimecode } from "../utils/mediaUtils";
 import { CopyrightStatus, LicenseType, MediaItem, RiskLevel } from "../types";
@@ -38,6 +39,7 @@ interface MediaLibraryProps {
   ) => void;
   onAddToTimeline: (media: MediaItem, targetTrack?: string) => void;
   onOpenAutoCut?: () => void;
+  onBackToStudio?: () => void;
 }
 
 export const MediaLibrary: React.FC<MediaLibraryProps> = ({
@@ -48,6 +50,7 @@ export const MediaLibrary: React.FC<MediaLibraryProps> = ({
   onUpdateMediaLicense,
   onAddToTimeline,
   onOpenAutoCut,
+  onBackToStudio,
 }) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [filterType, setFilterType] = useState<"all" | "video" | "audio" | "image">("all");
@@ -183,19 +186,31 @@ export const MediaLibrary: React.FC<MediaLibraryProps> = ({
   });
 
   return (
-    <div className="flex flex-col h-full bg-zinc-900/60 border-r border-zinc-800/80 w-80 md:w-96 select-none shrink-0 overflow-hidden">
+    <div className="flex flex-col h-full bg-zinc-900/60 border-r border-zinc-800/80 w-full md:w-80 lg:w-96 select-none shrink-0 overflow-hidden">
       {/* Media Header */}
-      <div className="p-3 border-b border-zinc-800 flex items-center justify-between">
-        <div>
-          <h2 className="text-xs font-bold uppercase tracking-wider text-zinc-300 flex items-center gap-1.5">
-            <Film className="w-3.5 h-3.5 text-amber-400" />
-            Media Library
-            <span className="text-[10px] font-normal text-zinc-500">({mediaItems.length})</span>
-          </h2>
+      <div className="p-2.5 sm:p-3 border-b border-zinc-800 flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          {onBackToStudio && (
+            <button
+              onClick={onBackToStudio}
+              className="md:hidden flex items-center gap-0.5 text-xs font-bold text-amber-400 bg-amber-500/10 hover:bg-amber-500/20 px-2 py-1 rounded-lg border border-amber-500/30 transition active:scale-95 min-h-[32px]"
+              title="Return to Studio (Preview Player & Timeline)"
+            >
+              <ChevronLeft className="w-4 h-4" />
+              <span>Studio</span>
+            </button>
+          )}
+          <div>
+            <h2 className="text-xs font-bold uppercase tracking-wider text-zinc-300 flex items-center gap-1.5">
+              <Film className="w-3.5 h-3.5 text-amber-400" />
+              Media Library
+              <span className="text-[10px] font-normal text-zinc-500">({mediaItems.length})</span>
+            </h2>
+          </div>
         </div>
         <button
           onClick={() => fileInputRef.current?.click()}
-          className="flex items-center gap-1 text-xs font-semibold px-2.5 py-1.5 rounded-lg bg-amber-500 hover:bg-amber-400 text-zinc-950 shadow transition cursor-pointer"
+          className="flex items-center gap-1 text-xs font-semibold px-2.5 py-1.5 rounded-lg bg-amber-500 hover:bg-amber-400 text-zinc-950 shadow transition cursor-pointer active:scale-95 min-h-[32px]"
         >
           <UploadCloud className="w-3.5 h-3.5" />
           <span>Upload</span>

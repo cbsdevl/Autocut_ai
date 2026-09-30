@@ -14,6 +14,7 @@ import {
   Scissors,
   UserCheck,
   Volume2,
+  ChevronLeft,
 } from "lucide-react";
 import { TimelineClip } from "../types";
 
@@ -25,6 +26,7 @@ interface EffectsAndAdjustPanelProps {
   onRunSilenceCut: () => void;
   onRunFaceReframe: () => void;
   onRunAudioNormalize: () => void;
+  onBackToStudio?: () => void;
 }
 
 export const EffectsAndAdjustPanel: React.FC<EffectsAndAdjustPanelProps> = ({
@@ -35,6 +37,7 @@ export const EffectsAndAdjustPanel: React.FC<EffectsAndAdjustPanelProps> = ({
   onRunSilenceCut,
   onRunFaceReframe,
   onRunAudioNormalize,
+  onBackToStudio,
 }) => {
   const transitionsList = [
     { id: "None", name: "Cut (None)", desc: "Standard instantaneous jump" },
@@ -74,28 +77,40 @@ export const EffectsAndAdjustPanel: React.FC<EffectsAndAdjustPanelProps> = ({
   };
 
   return (
-    <div className="flex flex-col h-full bg-zinc-900/60 border-r border-zinc-800/80 w-80 md:w-96 select-none shrink-0 overflow-hidden">
+    <div className="flex flex-col h-full bg-zinc-900/60 border-r border-zinc-800/80 w-full md:w-80 lg:w-96 select-none shrink-0 overflow-hidden">
       {/* Header */}
-      <div className="p-3 border-b border-zinc-800 flex items-center justify-between">
-        <h2 className="text-xs font-bold uppercase tracking-wider text-zinc-300 flex items-center gap-1.5">
-          {type === "transitions" ? (
-            <>
-              <Layers className="w-3.5 h-3.5 text-indigo-400" /> Transitions
-            </>
-          ) : type === "effects" ? (
-            <>
-              <Sparkles className="w-3.5 h-3.5 text-amber-400" /> Video Effects & LUTs
-            </>
-          ) : type === "adjust" ? (
-            <>
-              <Sliders className="w-3.5 h-3.5 text-emerald-400" /> Color Grading & Adjust
-            </>
-          ) : (
-            <>
-              <Wand2 className="w-3.5 h-3.5 text-rose-400" /> AI Video Tools
-            </>
+      <div className="p-2.5 sm:p-3 border-b border-zinc-800 flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          {onBackToStudio && (
+            <button
+              onClick={onBackToStudio}
+              className="md:hidden flex items-center gap-0.5 text-xs font-bold text-amber-400 bg-amber-500/10 hover:bg-amber-500/20 px-2 py-1 rounded-lg border border-amber-500/30 transition active:scale-95 min-h-[32px]"
+              title="Return to Studio (Preview Player & Timeline)"
+            >
+              <ChevronLeft className="w-4 h-4" />
+              <span>Studio</span>
+            </button>
           )}
-        </h2>
+          <h2 className="text-xs font-bold uppercase tracking-wider text-zinc-300 flex items-center gap-1.5">
+            {type === "transitions" ? (
+              <>
+                <Layers className="w-3.5 h-3.5 text-indigo-400" /> Transitions
+              </>
+            ) : type === "effects" ? (
+              <>
+                <Sparkles className="w-3.5 h-3.5 text-amber-400" /> Video Effects & LUTs
+              </>
+            ) : type === "adjust" ? (
+              <>
+                <Sliders className="w-3.5 h-3.5 text-emerald-400" /> Color Grading & Adjust
+              </>
+            ) : (
+              <>
+                <Wand2 className="w-3.5 h-3.5 text-rose-400" /> AI Video Tools
+              </>
+            )}
+          </h2>
+        </div>
       </div>
 
       <div className="flex-1 overflow-y-auto p-3 space-y-4">

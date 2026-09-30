@@ -12,6 +12,7 @@ import {
   ExternalLink,
   Info,
   HelpCircle,
+  ChevronLeft,
 } from "lucide-react";
 import { CopyrightStatus, LicenseType, MediaItem, RiskLevel, TimelineTrack } from "../types";
 import { generateLicenseReportText, triggerDownload } from "../utils/mediaUtils";
@@ -36,6 +37,7 @@ interface CopyrightSafetyCenterProps {
   onReplaceRiskyMedia: (oldMediaId: string, newMedia: MediaItem) => void;
   onRunAudit: () => void;
   isAuditing: boolean;
+  onBackToStudio?: () => void;
 }
 
 export const CopyrightSafetyCenter: React.FC<CopyrightSafetyCenterProps> = ({
@@ -46,6 +48,7 @@ export const CopyrightSafetyCenter: React.FC<CopyrightSafetyCenterProps> = ({
   onReplaceRiskyMedia,
   onRunAudit,
   isAuditing,
+  onBackToStudio,
 }) => {
   const [selectedAssetForReplace, setSelectedAssetForReplace] = useState<MediaItem | null>(null);
 
@@ -73,20 +76,32 @@ export const CopyrightSafetyCenter: React.FC<CopyrightSafetyCenterProps> = ({
   };
 
   return (
-    <div className="flex flex-col h-full bg-zinc-900/60 border-r border-zinc-800/80 w-80 md:w-96 select-none shrink-0 overflow-hidden">
+    <div className="flex flex-col h-full bg-zinc-900/60 border-r border-zinc-800/80 w-full md:w-80 lg:w-96 select-none shrink-0 overflow-hidden">
       {/* Header */}
-      <div className="p-3 border-b border-zinc-800 flex items-center justify-between">
-        <div>
-          <h2 className="text-xs font-bold uppercase tracking-wider text-zinc-300 flex items-center gap-1.5">
-            <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
-            Copyright Safety Center
-          </h2>
-          <p className="text-[10px] text-zinc-500">Compliance & Rights Management</p>
+      <div className="p-2.5 sm:p-3 border-b border-zinc-800 flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          {onBackToStudio && (
+            <button
+              onClick={onBackToStudio}
+              className="md:hidden flex items-center gap-0.5 text-xs font-bold text-amber-400 bg-amber-500/10 hover:bg-amber-500/20 px-2 py-1 rounded-lg border border-amber-500/30 transition active:scale-95 min-h-[32px]"
+              title="Return to Studio (Preview Player & Timeline)"
+            >
+              <ChevronLeft className="w-4 h-4" />
+              <span>Studio</span>
+            </button>
+          )}
+          <div>
+            <h2 className="text-xs font-bold uppercase tracking-wider text-zinc-300 flex items-center gap-1.5">
+              <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
+              Copyright Safety Center
+            </h2>
+            <p className="text-[10px] text-zinc-500">Compliance & Rights Management</p>
+          </div>
         </div>
         <button
           onClick={onRunAudit}
           disabled={isAuditing}
-          className="p-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-300 hover:text-white transition disabled:opacity-50"
+          className="p-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-300 hover:text-white transition disabled:opacity-50 min-h-[32px] min-w-[32px] flex items-center justify-center"
           title="Re-run AI Copyright Check"
         >
           <RefreshCw className={`w-3.5 h-3.5 ${isAuditing ? "animate-spin text-amber-400" : ""}`} />

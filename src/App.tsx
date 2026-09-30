@@ -14,6 +14,7 @@ import { AIAutoEditModal } from "./components/AIAutoEditModal";
 import { AIQualityCheckModal } from "./components/AIQualityCheckModal";
 import { ExportModal } from "./components/ExportModal";
 import { ProjectModal } from "./components/ProjectModal";
+import { MobileBottomNav, MobileTab } from "./components/MobileBottomNav";
 import {
   AutoEditOptions,
   CaptionItem,
@@ -63,6 +64,7 @@ export default function App() {
   // Selected Clip & Active Tab
   const [selectedClipId, setSelectedClipId] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<TabType>("media");
+  const [mobileTab, setMobileTab] = useState<MobileTab>("studio");
 
   // Playback State
   const [currentTime, setCurrentTime] = useState<number>(0);
@@ -582,6 +584,7 @@ export default function App() {
       }));
       setCurrentTime(0);
       setIsPlaying(true);
+      setMobileTab("studio");
       setIsAIAutoEditOpen(false);
     } catch (err) {
       console.error("AI Auto Edit error:", err);
@@ -770,7 +773,7 @@ export default function App() {
   };
 
   return (
-    <div className="flex flex-col h-screen w-screen bg-zinc-950 text-zinc-100 overflow-hidden font-sans">
+    <div className="flex flex-col h-screen w-screen bg-zinc-950 text-zinc-100 overflow-hidden font-sans pb-[52px] md:pb-0">
       {/* Top Application Bar */}
       <TopBar
         project={project}
@@ -786,24 +789,19 @@ export default function App() {
         }}
         onOpenNewProject={() => setIsProjectModalOpen(true)}
         onOpenQualityCheck={() => setIsQualityCheckOpen(true)}
-        onSelectTab={(tab) => setActiveTab(tab as TabType)}
+        onSelectTab={(tab) => {
+          setActiveTab(tab as TabType);
+          setMobileTab(tab as MobileTab);
+        }}
         onClearAllData={handleClearAllData}
         mediaItems={mediaItems}
         isSaving={isSaving}
         lastSavedText={lastSavedText}
       />
 
-      {/* Main Studio Body: Left Sidebar + Left Panel + Stage Canvas Player + Right Inspector */}
-      <div className="flex-1 flex overflow-hidden">
-        {/* Navigation Sidebar */}
-        <SidebarNav
-          activeTab={activeTab}
-          onSelectTab={setActiveTab}
-          mediaItems={mediaItems}
-        />
-
-        {/* Dynamic Secondary Panel Based on Selected Tab */}
-        {activeTab === "media" && (
+      {/* MOBILE-ONLY FULL-SCREEN TOOL PANELS (Rendered when mobileTab !== 'studio' on mobile) */}
+      <div className={`md:hidden flex-1 flex flex-col overflow-hidden ${mobileTab === "studio" ? "hidden" : "flex"}`}>
+        {mobileTab === "media" && (
           <MediaLibrary
             mediaItems={mediaItems}
             onUploadFiles={handleUploadFiles}
@@ -814,10 +812,11 @@ export default function App() {
             onUpdateMediaLicense={handleUpdateMediaLicense}
             onAddToTimeline={handleAddToTimeline}
             onOpenAutoCut={() => setIsAIAutoEditOpen(true)}
+            onBackToStudio={() => setMobileTab("studio")}
           />
         )}
 
-        {activeTab === "audio" && (
+        {mobileTab === "audio" && (
           <AudioLibrary
             onAddMediaToProject={(media) => {
               if (!mediaItems.some((m) => m.id === media.id)) {
@@ -825,20 +824,22 @@ export default function App() {
               }
             }}
             onAddToTimeline={handleAddToTimeline}
+            onBackToStudio={() => setMobileTab("studio")}
           />
         )}
 
-        {activeTab === "text" && (
+        {mobileTab === "text" && (
           <TextEditorPanel
             onAddTextToTimeline={handleAddTextToTimeline}
             selectedClip={selectedClip}
             onUpdateSelectedClip={(updates) => {
               if (selectedClipId) handleUpdateClip(selectedClipId, updates);
             }}
+            onBackToStudio={() => setMobileTab("studio")}
           />
         )}
 
-        {activeTab === "captions" && (
+        {mobileTab === "captions" && (
           <AICaptionsPanel
             captions={captions}
             onUpdateCaptions={setCaptions}
@@ -846,19 +847,19 @@ export default function App() {
             isTranscribing={isTranscribing}
             selectedCaptionStyle={selectedCaptionStyle}
             onSelectCaptionStyle={setSelectedCaptionStyle}
+            onBackToStudio={() => setMobileTab("studio")}
           />
         )}
 
-        {(activeTab === "transitions" || activeTab === "effects" || activeTab === "adjust" || activeTab === "ai_tools") && (
+        {mobileTab === "effects" && (
           <EffectsAndAdjustPanel
-            type={activeTab}
+            type="effects"
             selectedClip={selectedClip}
             onUpdateSelectedClip={(updates) => {
               if (selectedClipId) handleUpdateClip(selectedClipId, updates);
             }}
             onApplyPresetToAll={handleApplyPresetToAll}
             onRunSilenceCut={() => {
-              // Auto silence remover simulation
               handleApplyPresetToAll("cinematic");
               alert("Auto-Cut: Removed 1.8s of silence pauses across clips.");
             }}
@@ -878,10 +879,26 @@ export default function App() {
               pushHistory(updated);
               alert("Audio Normalization: Spoken dialogue normalized to -14 LUFS standard with auto-ducking.");
             }}
+            onBackToStudio={() => setMobileTab("studio")}
           />
         )}
 
-        {activeTab === "copyright" && (
+        {mobileTab === "inspector" && (
+          <Inspector
+            selectedClip={selectedClip}
+            mediaItems={mediaItems}
+            project={project}
+            currentTime={currentTime}
+            onUpdateClip={handleUpdateClip}
+            onSplitClip={handleSplitClip}
+            onDuplicateClip={handleDuplicateClip}
+            onDeleteClip={handleDeleteClip}
+            onUpdateProject={(updates) => setProject((p) => ({ ...p, ...updates }))}
+            onBackToStudio={() => setMobileTab("studio")}
+          />
+        )}
+
+        {mobileTab === "copyright" && (
           <CopyrightSafetyCenter
             projectName={project.name}
             mediaItems={mediaItems}
@@ -890,8 +907,115 @@ export default function App() {
             onReplaceRiskyMedia={handleReplaceRiskyMedia}
             onRunAudit={() => runCopyrightAudit()}
             isAuditing={isAuditing}
+            onBackToStudio={() => setMobileTab("studio")}
           />
         )}
+      </div>
+
+      {/* Main Studio Body: Left Sidebar + Left Panel + Stage Canvas Player + Right Inspector */}
+      {/* On desktop: always flex-row. On mobile: visible only when mobileTab === 'studio' */}
+      <div className={`flex-1 flex overflow-hidden ${mobileTab === "studio" ? "flex flex-col md:flex-row" : "hidden md:flex"}`}>
+        {/* Navigation Sidebar (Desktop only) */}
+        <SidebarNav
+          activeTab={activeTab}
+          onSelectTab={(tab) => {
+            setActiveTab(tab);
+            setMobileTab(tab as MobileTab);
+          }}
+          mediaItems={mediaItems}
+        />
+
+        {/* Dynamic Secondary Panel Based on Selected Tab (Desktop only) */}
+        <div className="hidden md:flex h-full shrink-0">
+          {activeTab === "media" && (
+            <MediaLibrary
+              mediaItems={mediaItems}
+              onUploadFiles={handleUploadFiles}
+              onDeleteMedia={(id) => setMediaItems((prev) => prev.filter((m) => m.id !== id))}
+              onRenameMedia={(id, newName) =>
+                setMediaItems((prev) => prev.map((m) => (m.id === id ? { ...m, name: newName } : m)))
+              }
+              onUpdateMediaLicense={handleUpdateMediaLicense}
+              onAddToTimeline={handleAddToTimeline}
+              onOpenAutoCut={() => setIsAIAutoEditOpen(true)}
+            />
+          )}
+
+          {activeTab === "audio" && (
+            <AudioLibrary
+              onAddMediaToProject={(media) => {
+                if (!mediaItems.some((m) => m.id === media.id)) {
+                  setMediaItems((prev) => [...prev, media]);
+                }
+              }}
+              onAddToTimeline={handleAddToTimeline}
+            />
+          )}
+
+          {activeTab === "text" && (
+            <TextEditorPanel
+              onAddTextToTimeline={handleAddTextToTimeline}
+              selectedClip={selectedClip}
+              onUpdateSelectedClip={(updates) => {
+                if (selectedClipId) handleUpdateClip(selectedClipId, updates);
+              }}
+            />
+          )}
+
+          {activeTab === "captions" && (
+            <AICaptionsPanel
+              captions={captions}
+              onUpdateCaptions={setCaptions}
+              onGenerateAICaptions={handleGenerateAICaptions}
+              isTranscribing={isTranscribing}
+              selectedCaptionStyle={selectedCaptionStyle}
+              onSelectCaptionStyle={setSelectedCaptionStyle}
+            />
+          )}
+
+          {(activeTab === "transitions" || activeTab === "effects" || activeTab === "adjust" || activeTab === "ai_tools") && (
+            <EffectsAndAdjustPanel
+              type={activeTab}
+              selectedClip={selectedClip}
+              onUpdateSelectedClip={(updates) => {
+                if (selectedClipId) handleUpdateClip(selectedClipId, updates);
+              }}
+              onApplyPresetToAll={handleApplyPresetToAll}
+              onRunSilenceCut={() => {
+                handleApplyPresetToAll("cinematic");
+                alert("Auto-Cut: Removed 1.8s of silence pauses across clips.");
+              }}
+              onRunFaceReframe={() => {
+                const updated = tracks.map((t) => ({
+                  ...t,
+                  clips: t.clips.map((c) => ({ ...c, reframe: "face_focus" as const })),
+                }));
+                pushHistory(updated);
+                alert("Smart Reframe: Face centering enabled on all active video clips.");
+              }}
+              onRunAudioNormalize={() => {
+                const updated = tracks.map((t) => ({
+                  ...t,
+                  clips: t.clips.map((c) => ({ ...c, ducking: true, volume: 0.9 })),
+                }));
+                pushHistory(updated);
+                alert("Audio Normalization: Spoken dialogue normalized to -14 LUFS standard with auto-ducking.");
+              }}
+            />
+          )}
+
+          {activeTab === "copyright" && (
+            <CopyrightSafetyCenter
+              projectName={project.name}
+              mediaItems={mediaItems}
+              tracks={tracks}
+              onUpdateMediaLicense={handleUpdateMediaLicense}
+              onReplaceRiskyMedia={handleReplaceRiskyMedia}
+              onRunAudit={() => runCopyrightAudit()}
+              isAuditing={isAuditing}
+            />
+          )}
+        </div>
 
         {/* Center: Stage Canvas Preview Player */}
         <VideoPlayer
@@ -910,38 +1034,57 @@ export default function App() {
           onToggleVideoAudioMuted={() => setIsVideoAudioMuted(!isVideoAudioMuted)}
         />
 
-        {/* Right: Inspector Properties Panel */}
-        <Inspector
-          selectedClip={selectedClip}
-          mediaItems={mediaItems}
-          project={project}
-          currentTime={currentTime}
-          onUpdateClip={handleUpdateClip}
-          onSplitClip={handleSplitClip}
-          onDuplicateClip={handleDuplicateClip}
-          onDeleteClip={handleDeleteClip}
-          onUpdateProject={(updates) => setProject((p) => ({ ...p, ...updates }))}
-        />
+        {/* Right: Inspector Properties Panel (Desktop only) */}
+        <div className="hidden lg:flex h-full shrink-0">
+          <Inspector
+            selectedClip={selectedClip}
+            mediaItems={mediaItems}
+            project={project}
+            currentTime={currentTime}
+            onUpdateClip={handleUpdateClip}
+            onSplitClip={handleSplitClip}
+            onDuplicateClip={handleDuplicateClip}
+            onDeleteClip={handleDeleteClip}
+            onUpdateProject={(updates) => setProject((p) => ({ ...p, ...updates }))}
+          />
+        </div>
       </div>
 
       {/* Bottom: Professional Multi-Track Timeline */}
-      <Timeline
-        tracks={tracks}
+      {/* On desktop: always visible. On mobile: visible when in studio mode */}
+      <div className={mobileTab === "studio" ? "flex flex-col shrink-0" : "hidden md:flex md:flex-col md:shrink-0"}>
+        <Timeline
+          tracks={tracks}
+          mediaItems={mediaItems}
+          captions={captions}
+          currentTime={currentTime}
+          totalDuration={totalDuration}
+          isPlaying={isPlaying}
+          selectedClipId={selectedClipId}
+          onSelectClip={(clip) => setSelectedClipId(clip ? clip.id : null)}
+          onUpdateTracks={pushHistory}
+          onSeek={setCurrentTime}
+          onTogglePlay={() => setIsPlaying(!isPlaying)}
+          onSplitClip={handleSplitClip}
+          onDuplicateClip={handleDuplicateClip}
+          onDeleteClip={handleDeleteClip}
+          isVideoAudioMuted={isVideoAudioMuted}
+          onToggleVideoAudioMuted={() => setIsVideoAudioMuted(!isVideoAudioMuted)}
+          onOpenInspector={() => setMobileTab("inspector")}
+        />
+      </div>
+
+      {/* Mobile Bottom Navigation Bar (md:hidden) */}
+      <MobileBottomNav
+        activeTab={mobileTab}
+        onSelectTab={(tab) => {
+          setMobileTab(tab);
+          if (tab !== "studio" && tab !== "inspector") {
+            setActiveTab(tab as TabType);
+          }
+        }}
         mediaItems={mediaItems}
-        captions={captions}
-        currentTime={currentTime}
-        totalDuration={totalDuration}
-        isPlaying={isPlaying}
-        selectedClipId={selectedClipId}
-        onSelectClip={(clip) => setSelectedClipId(clip ? clip.id : null)}
-        onUpdateTracks={pushHistory}
-        onSeek={setCurrentTime}
-        onTogglePlay={() => setIsPlaying(!isPlaying)}
-        onSplitClip={handleSplitClip}
-        onDuplicateClip={handleDuplicateClip}
-        onDeleteClip={handleDeleteClip}
-        isVideoAudioMuted={isVideoAudioMuted}
-        onToggleVideoAudioMuted={() => setIsVideoAudioMuted(!isVideoAudioMuted)}
+        hasSelectedClip={Boolean(selectedClipId)}
       />
 
       {/* Modals */}

@@ -11,6 +11,7 @@ import {
   Palette,
   Check,
   Languages,
+  ChevronLeft,
 } from "lucide-react";
 import { CaptionItem } from "../types";
 import { formatTimecode } from "../utils/mediaUtils";
@@ -22,6 +23,7 @@ interface AICaptionsPanelProps {
   isTranscribing: boolean;
   selectedCaptionStyle: string;
   onSelectCaptionStyle: (style: string) => void;
+  onBackToStudio?: () => void;
 }
 
 export const AICaptionsPanel: React.FC<AICaptionsPanelProps> = ({
@@ -31,6 +33,7 @@ export const AICaptionsPanel: React.FC<AICaptionsPanelProps> = ({
   isTranscribing,
   selectedCaptionStyle,
   onSelectCaptionStyle,
+  onBackToStudio,
 }) => {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [newCaptionText, setNewCaptionText] = useState("");
@@ -69,15 +72,27 @@ export const AICaptionsPanel: React.FC<AICaptionsPanelProps> = ({
   };
 
   return (
-    <div className="flex flex-col h-full bg-zinc-900/60 border-r border-zinc-800/80 w-80 md:w-96 select-none shrink-0 overflow-hidden">
+    <div className="flex flex-col h-full bg-zinc-900/60 border-r border-zinc-800/80 w-full md:w-80 lg:w-96 select-none shrink-0 overflow-hidden">
       {/* Captions Header */}
-      <div className="p-3 border-b border-zinc-800 flex items-center justify-between">
-        <div>
-          <h2 className="text-xs font-bold uppercase tracking-wider text-zinc-300 flex items-center gap-1.5">
-            <Subtitles className="w-3.5 h-3.5 text-indigo-400" />
-            AI Subtitles & Captions
-          </h2>
-          <p className="text-[10px] text-zinc-500">Auto Speech-to-Text & Karaoke</p>
+      <div className="p-2.5 sm:p-3 border-b border-zinc-800 flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          {onBackToStudio && (
+            <button
+              onClick={onBackToStudio}
+              className="md:hidden flex items-center gap-0.5 text-xs font-bold text-amber-400 bg-amber-500/10 hover:bg-amber-500/20 px-2 py-1 rounded-lg border border-amber-500/30 transition active:scale-95 min-h-[32px]"
+              title="Return to Studio (Preview Player & Timeline)"
+            >
+              <ChevronLeft className="w-4 h-4" />
+              <span>Studio</span>
+            </button>
+          )}
+          <div>
+            <h2 className="text-xs font-bold uppercase tracking-wider text-zinc-300 flex items-center gap-1.5">
+              <Subtitles className="w-3.5 h-3.5 text-indigo-400" />
+              AI Subtitles & Captions
+            </h2>
+            <p className="text-[10px] text-zinc-500">Auto Speech-to-Text & Karaoke</p>
+          </div>
         </div>
       </div>
 
