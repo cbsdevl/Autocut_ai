@@ -186,6 +186,11 @@ async function renderOfflineAudioMix(
 
       const clipStart = Math.max(0, clip.startTime);
       const clipOffset = Math.max(0, clip.trimStart || 0);
+      const clipEndTrim = Math.max(0, clip.trimEnd || 0);
+      const clipDuration = Math.max(
+        0.1,
+        Math.min(clip.duration, Math.max(0, buffer.duration - clipOffset - clipEndTrim))
+      );
 
       if (clipStart < totalDuration) {
         if (clip.duration > buffer.duration) {
@@ -194,7 +199,7 @@ async function renderOfflineAudioMix(
         source.start(
           clipStart,
           clipOffset,
-          Math.min(clip.duration, totalDuration - clipStart)
+          Math.min(clipDuration, totalDuration - clipStart)
         );
       }
     } catch (schedErr) {

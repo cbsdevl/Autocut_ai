@@ -15,10 +15,19 @@ import {
   HelpCircle,
   Trash2,
   MoreVertical,
+  ChevronDown,
   Sliders,
   Check,
+  LogOut,
+  Crown,
+  Zap,
+  User,
+  Upload,
+  Archive,
 } from "lucide-react";
 import { AspectRatio, MediaItem, ProjectSettings } from "../types";
+import { useAuth } from "../context/AuthContext";
+
 
 interface TopBarProps {
   project: ProjectSettings;
@@ -36,6 +45,13 @@ interface TopBarProps {
   mediaItems: MediaItem[];
   isSaving: boolean;
   lastSavedText: string;
+  onOpenAdmin?: () => void;
+  onOpenPricing?: () => void;
+  onOpenProjects?: () => void;
+  onImportProject?: (file: File) => void;
+  onExportProject?: () => void;
+  onSaveProject?: () => void;
+  onBeforeLogout?: () => Promise<void>;
 }
 
 export const TopBar: React.FC<TopBarProps> = ({
@@ -54,11 +70,22 @@ export const TopBar: React.FC<TopBarProps> = ({
   mediaItems,
   isSaving,
   lastSavedText,
+  onOpenAdmin,
+  onOpenPricing,
+  onOpenProjects,
+  onImportProject,
+  onExportProject,
+  onSaveProject,
+  onBeforeLogout,
 }) => {
+  const { currentUser, logout } = useAuth();
   const [isEditingTitle, setIsEditingTitle] = useState(false);
   const [titleInput, setTitleInput] = useState(project.name);
   const [showMobileMenu, setShowMobileMenu] = useState(false);
+  const [showUserMenu, setShowUserMenu] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
+  const userMenuRef = useRef<HTMLDivElement>(null);
+  const projectImportRef = useRef<HTMLInputElement>(null);
 
   // Close mobile menu on click outside
   useEffect(() => {
@@ -89,16 +116,12 @@ export const TopBar: React.FC<TopBarProps> = ({
   };
 
   return (
-    <header className="h-13 md:h-14 bg-zinc-950 border-b border-zinc-800/80 px-2 sm:px-3 flex items-center justify-between select-none z-30 shrink-0 relative">
+    <header className="h-12 md:h-14 bg-zinc-950 border-b border-zinc-800 px-3 sm:px-4 flex items-center justify-between select-none z-30 shrink-0 relative">
       {/* Left: Brand + Project Title + Aspect Ratio */}
-      <div className="flex items-center gap-1.5 sm:gap-2.5 min-w-0">
-        <div className="flex items-center gap-1.5 pr-1.5 sm:pr-2 border-r border-zinc-800/80 shrink-0">
-          <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-lg bg-gradient-to-tr from-amber-500 via-rose-500 to-indigo-600 p-[1.5px] shadow-sm flex items-center justify-center">
-            <div className="w-full h-full bg-zinc-950 rounded-[7px] flex items-center justify-center">
-              <Film className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-amber-400" />
-            </div>
-          </div>
-          <span className="text-xs sm:text-sm font-black tracking-tight text-zinc-100 hidden xs:inline">
+      <div className="flex items-center gap-2 sm:gap-3 min-w-0">
+        <div className="flex items-center gap-1.5 shrink-0">
+          <Film className="w-4 h-4 text-amber-400" />
+          <span className="text-xs font-semibold text-zinc-200 hidden xs:inline">
             AutoCut
           </span>
         </div>
@@ -122,7 +145,7 @@ export const TopBar: React.FC<TopBarProps> = ({
                 setIsEditingTitle(true);
               }}
               title="Click to rename project"
-              className="text-xs font-semibold text-zinc-200 hover:text-white px-1.5 py-1 rounded hover:bg-zinc-900 transition truncate max-w-[90px] sm:max-w-[140px] md:max-w-[200px]"
+              className="text-xs font-medium text-zinc-300 hover:text-white px-1 py-1 transition truncate max-w-[90px] sm:max-w-[140px] md:max-w-[200px]"
             >
               <span className="truncate">{project.name}</span>
             </button>
@@ -132,7 +155,7 @@ export const TopBar: React.FC<TopBarProps> = ({
           <select
             value={project.aspectRatio}
             onChange={(e) => onUpdateProject({ aspectRatio: e.target.value as AspectRatio })}
-            className="bg-zinc-900 hover:bg-zinc-850 text-[10px] sm:text-[11px] font-medium text-zinc-300 border border-zinc-800 rounded px-1.5 sm:px-2 py-1 focus:outline-none focus:border-zinc-600 transition cursor-pointer shrink-0"
+            className="bg-transparent hover:bg-zinc-900 text-[10px] sm:text-[11px] font-medium text-zinc-400 hover:text-zinc-200 border border-transparent hover:border-zinc-800 rounded px-1.5 py-1 focus:outline-none transition cursor-pointer shrink-0"
           >
             <option value="16:9">16:9</option>
             <option value="9:16">9:16</option>
@@ -140,12 +163,12 @@ export const TopBar: React.FC<TopBarProps> = ({
           </select>
 
           {/* Resolution Badge - Desktop only */}
-          <span className="hidden xl:inline text-[11px] font-mono px-2 py-0.5 rounded bg-zinc-900 border border-zinc-800/80 text-zinc-400 shrink-0">
-            {project.resolution} • {project.frameRate}fps
+          <span className="hidden xl:inline text-[10px] font-mono text-zinc-500 shrink-0">
+            {project.resolution} / {project.frameRate} fps
           </span>
 
           {/* Autosave status indicator - Desktop only */}
-          <div className="hidden lg:flex items-center gap-1.5 text-[11px] text-zinc-500 pl-1 shrink-0">
+          <div className="hidden lg:flex items-center gap-1.5 text-[10px] text-zinc-500 pl-1 shrink-0">
             {isSaving ? (
               <span className="flex items-center gap-1 text-amber-400">
                 <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse" />
@@ -162,12 +185,12 @@ export const TopBar: React.FC<TopBarProps> = ({
       </div>
 
       {/* Center: Undo/Redo & Quick Actions */}
-      <div className="flex items-center gap-0.5 sm:gap-1 bg-zinc-900/80 border border-zinc-800/80 rounded-lg p-0.5 shrink-0 mx-0.5 sm:mx-1">
+      <div className="flex items-center gap-0.5 shrink-0 mx-1 sm:mx-2">
         <button
           onClick={onUndo}
           disabled={!canUndo}
           title="Undo (Ctrl+Z)"
-          className="p-1.5 sm:p-2 rounded hover:bg-zinc-800 text-zinc-400 hover:text-zinc-200 disabled:opacity-30 disabled:pointer-events-none transition min-w-[36px] min-h-[36px] flex items-center justify-center active:scale-95"
+          className="p-2 rounded text-zinc-500 hover:bg-zinc-900 hover:text-zinc-200 disabled:opacity-30 disabled:pointer-events-none transition min-w-[34px] min-h-[34px] flex items-center justify-center"
         >
           <RotateCcw className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
         </button>
@@ -175,63 +198,50 @@ export const TopBar: React.FC<TopBarProps> = ({
           onClick={onRedo}
           disabled={!canRedo}
           title="Redo (Ctrl+Shift+Z)"
-          className="p-1.5 sm:p-2 rounded hover:bg-zinc-800 text-zinc-400 hover:text-zinc-200 disabled:opacity-30 disabled:pointer-events-none transition min-w-[36px] min-h-[36px] flex items-center justify-center active:scale-95"
+          className="p-2 rounded text-zinc-500 hover:bg-zinc-900 hover:text-zinc-200 disabled:opacity-30 disabled:pointer-events-none transition min-w-[34px] min-h-[34px] flex items-center justify-center"
         >
           <RotateCw className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
         </button>
 
-        {/* Desktop extra action buttons */}
-        <div className="hidden md:flex items-center">
-          <div className="w-[1px] h-4 bg-zinc-800 mx-1" />
-          <button
-            onClick={onOpenNewProject}
-            title="New Project"
-            className="flex items-center gap-1 text-[11px] font-medium text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800 px-2 py-1 rounded transition min-h-[32px]"
-          >
-            <Plus className="w-3.5 h-3.5" />
-            <span>New</span>
-          </button>
-          {onClearAllData && (
-            <button
-              onClick={onClearAllData}
-              title="Clear All Data (Blank Workspace)"
-              className="flex items-center gap-1 text-[11px] font-medium text-zinc-400 hover:text-rose-300 hover:bg-rose-950/40 px-2 py-1 rounded transition min-h-[32px]"
-            >
-              <Trash2 className="w-3.5 h-3.5" />
-              <span>Clear</span>
-            </button>
-          )}
-        </div>
       </div>
+
+      <input
+        ref={projectImportRef}
+        type="file"
+        accept=".zip,.autocut.zip,application/zip"
+        className="hidden"
+        onChange={(event) => {
+          const file = event.target.files?.[0];
+          if (file) onImportProject?.(file);
+          event.target.value = "";
+        }}
+      />
 
       {/* Right: AI Auto Edit + Export Button + Mobile Menu */}
       <div className="flex items-center gap-1 sm:gap-2 shrink-0">
         {/* Copyright Safety Badge Button - Desktop only */}
         <button
           onClick={() => onSelectTab("copyright")}
-          className={`hidden sm:flex items-center gap-1.5 text-xs font-semibold px-2 py-1.5 rounded-lg border transition ${
+          className={`hidden sm:flex items-center justify-center p-2 rounded transition ${
             hasHighRisk
-              ? "bg-rose-950/40 border-rose-600/60 text-rose-300 hover:bg-rose-900/50"
+              ? "text-rose-400 hover:bg-rose-950/40"
               : hasMediumRisk
-              ? "bg-amber-950/40 border-amber-600/60 text-amber-300 hover:bg-amber-900/50"
-              : "bg-emerald-950/30 border-emerald-600/40 text-emerald-300 hover:bg-emerald-900/40"
+              ? "text-amber-400 hover:bg-amber-950/40"
+              : "text-zinc-500 hover:bg-zinc-900 hover:text-zinc-300"
           }`}
           title="Open Copyright Safety Center"
         >
           {hasHighRisk ? (
             <>
-              <ShieldAlert className="w-3.5 h-3.5 text-rose-400 animate-pulse" />
-              <span className="hidden md:inline">Copyright Warning</span>
+              <ShieldAlert className="w-4 h-4" />
             </>
           ) : hasMediumRisk ? (
             <>
-              <ShieldAlert className="w-3.5 h-3.5 text-amber-400" />
-              <span className="hidden md:inline">Verify Rights</span>
+              <ShieldAlert className="w-4 h-4" />
             </>
           ) : (
             <>
-              <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
-              <span className="hidden md:inline">Copyright Safety</span>
+              <ShieldCheck className="w-4 h-4" />
             </>
           )}
         </button>
@@ -239,35 +249,36 @@ export const TopBar: React.FC<TopBarProps> = ({
         {/* AI Auto Edit Button */}
         <button
           onClick={onOpenAIAutoEdit}
-          className="flex items-center gap-1 text-xs font-bold px-2 sm:px-3 py-1.5 rounded-lg bg-gradient-to-r from-amber-500 via-rose-500 to-indigo-600 hover:from-amber-400 hover:via-rose-400 hover:to-indigo-500 text-white shadow-md shadow-rose-950/50 transition cursor-pointer min-h-[36px] active:scale-95"
+          className="flex items-center gap-1.5 text-xs font-medium px-2.5 py-1.5 rounded text-zinc-300 hover:text-white hover:bg-zinc-900 transition min-h-[34px]"
           title="Run AI Automatic Editing"
         >
-          <Sparkles className="w-3.5 h-3.5 text-amber-200 fill-amber-200 animate-pulse shrink-0" />
+          <Sparkles className="w-3.5 h-3.5 text-amber-400 shrink-0" />
           <span className="hidden sm:inline">AI Auto Cut</span>
         </button>
 
         {/* Export for YouTube Button */}
         <button
           onClick={onOpenExport}
-          className="flex items-center gap-1 text-xs font-bold px-2.5 sm:px-3.5 py-1.5 rounded-lg bg-zinc-100 hover:bg-white text-zinc-950 shadow transition cursor-pointer min-h-[36px] active:scale-95"
+          className="flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded bg-amber-400 hover:bg-amber-300 text-zinc-950 transition min-h-[34px]"
           title="Export Video for YouTube"
         >
-          <Download className="w-3.5 h-3.5 text-zinc-950 stroke-[2.5]" />
+          <Download className="w-3.5 h-3.5" />
           <span>Export</span>
         </button>
 
         {/* Mobile Overflow Menu Toggle */}
-        <div className="relative md:hidden" ref={menuRef}>
+        <div className="relative" ref={menuRef}>
           <button
             onClick={() => setShowMobileMenu(!showMobileMenu)}
-            className="p-1.5 rounded-lg bg-zinc-900 border border-zinc-800 text-zinc-300 hover:text-white transition min-w-[36px] min-h-[36px] flex items-center justify-center active:scale-95"
-            title="More Options"
+            className="p-2 rounded text-zinc-500 hover:bg-zinc-900 hover:text-zinc-200 transition min-w-[34px] min-h-[34px] flex items-center justify-center"
+            title="More project actions"
+            aria-label="More project actions"
           >
             <MoreVertical className="w-4 h-4" />
           </button>
 
           {showMobileMenu && (
-            <div className="absolute right-0 top-full mt-1.5 w-52 bg-zinc-900 border border-zinc-800 rounded-xl shadow-2xl py-1.5 z-50 text-xs">
+            <div className="absolute right-0 top-full mt-1.5 w-56 bg-zinc-900 border border-zinc-800 rounded-md shadow-xl py-1 z-50 text-xs">
               <button
                 onClick={() => {
                   setShowMobileMenu(false);
@@ -278,6 +289,30 @@ export const TopBar: React.FC<TopBarProps> = ({
                 <Plus className="w-4 h-4 text-emerald-400" />
                 <span>New Project</span>
               </button>
+
+              {onSaveProject && (
+                <button onClick={() => { setShowMobileMenu(false); onSaveProject(); }} className="w-full text-left px-3 py-2.5 text-zinc-200 hover:bg-zinc-800 flex items-center gap-2.5">
+                  <Save className="w-4 h-4 text-emerald-400" /><span>Save Project</span>
+                </button>
+              )}
+
+              {onOpenProjects && (
+                <button onClick={() => { setShowMobileMenu(false); onOpenProjects(); }} className="w-full text-left px-3 py-2.5 text-zinc-200 hover:bg-zinc-800 flex items-center gap-2.5">
+                  <FolderOpen className="w-4 h-4 text-sky-400" /><span>Open Saved Project</span>
+                </button>
+              )}
+
+              {onImportProject && (
+                <button onClick={() => { setShowMobileMenu(false); projectImportRef.current?.click(); }} className="w-full text-left px-3 py-2.5 text-zinc-200 hover:bg-zinc-800 flex items-center gap-2.5">
+                  <Upload className="w-4 h-4 text-sky-400" /><span>Import Project Archive</span>
+                </button>
+              )}
+
+              {onExportProject && (
+                <button onClick={() => { setShowMobileMenu(false); onExportProject(); }} className="w-full text-left px-3 py-2.5 text-zinc-200 hover:bg-zinc-800 flex items-center gap-2.5">
+                  <Archive className="w-4 h-4 text-amber-400" /><span>Export Project Archive</span>
+                </button>
+              )}
 
               <button
                 onClick={() => {
@@ -300,6 +335,32 @@ export const TopBar: React.FC<TopBarProps> = ({
                 <CheckCircle2 className="w-4 h-4 text-indigo-400" />
                 <span>AI Quality Check</span>
               </button>
+
+              {currentUser && onOpenPricing && (
+                <button
+                  onClick={() => {
+                    setShowMobileMenu(false);
+                    onOpenPricing();
+                  }}
+                  className="w-full text-left px-3 py-2.5 text-zinc-200 hover:bg-zinc-800 flex items-center gap-2.5"
+                >
+                  <Zap className="w-4 h-4 text-purple-400" />
+                  <span>{currentUser.plan_slug === "free" ? "Upgrade Plan" : "Manage Plan"}</span>
+                </button>
+              )}
+
+              {currentUser?.role === "admin" && onOpenAdmin && (
+                <button
+                  onClick={() => {
+                    setShowMobileMenu(false);
+                    onOpenAdmin();
+                  }}
+                  className="w-full text-left px-3 py-2.5 text-amber-300 hover:bg-amber-950/30 flex items-center gap-2.5"
+                >
+                  <Crown className="w-4 h-4 text-amber-400" />
+                  <span>Admin Dashboard</span>
+                </button>
+              )}
 
               <button
                 onClick={() => {
@@ -330,6 +391,81 @@ export const TopBar: React.FC<TopBarProps> = ({
             </div>
           )}
         </div>
+
+        {/* ── User Menu (desktop) ── */}
+        {currentUser && (
+          <div className="relative hidden md:block" ref={userMenuRef}>
+            <button
+              onClick={() => setShowUserMenu(!showUserMenu)}
+              className="flex items-center gap-1.5 p-1 rounded-md text-zinc-500 hover:text-zinc-200 hover:bg-zinc-900 transition min-h-[34px]"
+              title={`${currentUser.name} · ${currentUser.plan_name} Plan`}
+              aria-label="Open profile menu"
+            >
+              {/* Avatar */}
+              <div className="w-6 h-6 rounded-full bg-zinc-800 border border-zinc-700 flex items-center justify-center text-[10px] font-medium text-zinc-300 shrink-0">
+                {currentUser.name.charAt(0).toUpperCase()}
+              </div>
+
+              <ChevronDown className="w-3 h-3" />
+            </button>
+
+            {showUserMenu && (
+              <div
+                className="absolute right-0 top-full mt-1.5 w-56 bg-zinc-900 border border-zinc-800 rounded-md shadow-lg py-1 z-50 text-xs"
+                onMouseLeave={() => setShowUserMenu(false)}
+              >
+                {/* User info */}
+                <div className="px-3 py-2 border-b border-zinc-800">
+                  <p className="font-medium text-zinc-200 truncate">{currentUser.name}</p>
+                  <p className="text-zinc-500 truncate">{currentUser.email}</p>
+                  <p className="text-zinc-500 mt-1">{currentUser.plan_name} plan{currentUser.role === "admin" ? " · Admin" : ""}</p>
+                  {currentUser.plan_slug === "free" && (
+                    <p className="text-zinc-500 mt-1">
+                      {currentUser.ai_videos_used}/{currentUser.ai_video_limit} AI videos used
+                    </p>
+                  )}
+                </div>
+
+                {/* Upgrade / Pricing */}
+                {onOpenPricing && (
+                  <button
+                    onClick={() => { setShowUserMenu(false); onOpenPricing(); }}
+                    className="w-full text-left px-3 py-2 text-zinc-300 hover:bg-zinc-800 flex items-center gap-2.5"
+                  >
+                    <Zap className="w-4 h-4 text-zinc-500" />
+                    <span>{currentUser.plan_slug === "free" ? "Upgrade Plan" : "Manage Plan"}</span>
+                  </button>
+                )}
+
+                {/* Admin panel */}
+                {currentUser.role === "admin" && onOpenAdmin && (
+                  <button
+                    onClick={() => { setShowUserMenu(false); onOpenAdmin(); }}
+                    className="w-full text-left px-3 py-2 text-zinc-300 hover:bg-zinc-800 flex items-center gap-2.5"
+                  >
+                    <Crown className="w-4 h-4 text-zinc-500" />
+                    <span>Admin Dashboard</span>
+                  </button>
+                )}
+
+                <div className="h-[1px] bg-zinc-800 my-1" />
+
+                {/* Logout */}
+                <button
+                  onClick={async () => {
+                    setShowUserMenu(false);
+                    await onBeforeLogout?.();
+                    await logout();
+                  }}
+                  className="w-full text-left px-3 py-2 text-zinc-400 hover:bg-zinc-800 hover:text-rose-300 flex items-center gap-2.5"
+                >
+                  <LogOut className="w-4 h-4" />
+                  <span>Sign Out</span>
+                </button>
+              </div>
+            )}
+          </div>
+        )}
       </div>
     </header>
   );

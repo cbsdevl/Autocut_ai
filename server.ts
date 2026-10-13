@@ -1,4 +1,4 @@
-import express from "express";
+import express, { Request, Response, NextFunction } from "express";
 import path from "path";
 import dotenv from "dotenv";
 import fs, { promises as fsPromises } from "fs";
@@ -6,23 +6,320 @@ import os from "os";
 import { execFile } from "child_process";
 import { promisify } from "util";
 import multer from "multer";
+import ffmpegStatic from "ffmpeg-static";
 import { GoogleGenAI } from "@google/genai";
 import { createServer as createViteServer } from "vite";
+import bcrypt from "bcryptjs";
+import jwt from "jsonwebtoken";
+import cookieParser from "cookie-parser";
+import {
+  getUserByEmail,
+  getUserById,
+  getUserWithSubscription,
+  getAllUsers,
+  createUser,
+  updateUserRole,
+  deleteUser,
+  getAllPlans,
+  updatePlan,
+  upgradeUserPlan,
+  consumeAiVideoUsage,
+} from "./src/db/database.js";
+
+dotenv.config();
 
 const execFileAsync = promisify(execFile);
+const runFFmpeg = (args: string[]) =>
+  execFileAsync(process.env.FFMPEG_PATH || ffmpegStatic || "ffmpeg", args, {
+    maxBuffer: 256 * 1024 * 1024,
+  });
+
+function ffmpegColor(value: string | undefined, fallback: string): string {
+  if (!value || value === "transparent") return fallback;
+  const hex = value.match(/^#([0-9a-f]{6})$/i);
+  if (hex) return `0x${hex[1]}`;
+  const rgba = value.match(/^rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)(?:\s*,\s*([\d.]+))?\s*\)$/i);
+  if (rgba) {
+    const channels = rgba.slice(1, 4).map((channel) => Number(channel).toString(16).padStart(2, "0")).join("");
+    return `0x${channels}${rgba[4] ? `@${rgba[4]}` : ""}`;
+  }
+  return value;
+}
+
+function escapeFilterPath(value: string): string {
+  return value.replace(/\\/g, "/").replace(/:/g, "\\:").replace(/'/g, "\\'");
+}
+
+function findOverlayFont(fontFamily: string, bold: boolean): string | null {
+  const family = fontFamily.toLowerCase();
+  const fontsDirectory = path.join(process.env.WINDIR || "C:/Windows", "Fonts");
+  let fontNames: string[];
+  if (family.includes("impact")) fontNames = ["impact.ttf"];
+  else if (family.includes("georgia")) fontNames = [bold ? "georgiab.ttf" : "georgia.ttf"];
+  else if (family.includes("mono")) fontNames = [bold ? "consolab.ttf" : "consola.ttf"];
+  else if (family.includes("serif")) fontNames = [bold ? "timesbd.ttf" : "times.ttf"];
+  else fontNames = [bold ? "arialbd.ttf" : "arial.ttf"];
+
+  const candidates = [
+    ...fontNames.map((name) => path.join(fontsDirectory, name)),
+    `/usr/share/fonts/truetype/dejavu/${family.includes("serif") ? "DejaVuSerif" : "DejaVuSans"}${bold ? "-Bold" : ""}.ttf`,
+    `/usr/share/fonts/truetype/liberation2/${bold ? "LiberationSans-Bold" : "LiberationSans-Regular"}.ttf`,
+  ];
+  return candidates.find((candidate) => fs.existsSync(candidate)) || null;
+}
+
 const uploadMaster = multer({
   dest: os.tmpdir(),
   limits: { fileSize: 500 * 1024 * 1024 },
 });
 
-dotenv.config();
-
 const app = express();
 const PORT = 3000;
+const JWT_SECRET = process.env.JWT_SECRET || "autocut-ai-secret-change-in-production";
+const COOKIE_NAME = "autocut_token";
 
-// Set payload limits for video/audio metadata and data
+// Middlewares
 app.use(express.json({ limit: "50mb" }));
 app.use(express.urlencoded({ extended: true, limit: "50mb" }));
+app.use(cookieParser());
+
+// ─────────────────────────────────────────────────────────────
+// Auth Helpers
+// ─────────────────────────────────────────────────────────────
+
+interface JWTPayload { userId: number }
+
+function signToken(userId: number): string {
+  return jwt.sign({ userId } as JWTPayload, JWT_SECRET, { expiresIn: "30d" });
+}
+
+function verifyToken(token: string): JWTPayload | null {
+  try { return jwt.verify(token, JWT_SECRET) as JWTPayload; }
+  catch { return null; }
+}
+
+// Express augmentation for typed req.user
+declare global {
+  namespace Express {
+    interface Request {
+      user?: ReturnType<typeof getUserWithSubscription> extends (infer U | undefined) ? U : never;
+    }
+  }
+}
+
+// Middleware: require authenticated user (any role)
+function requireAuth(req: Request, res: Response, next: NextFunction) {
+  const token = req.cookies?.[COOKIE_NAME];
+  if (!token) { res.status(401).json({ error: "Unauthorized" }); return; }
+  const payload = verifyToken(token);
+  if (!payload) { res.status(401).json({ error: "Invalid session" }); return; }
+  const user = getUserWithSubscription(payload.userId);
+  if (!user) { res.status(401).json({ error: "User not found" }); return; }
+  (req as any).user = user;
+  next();
+}
+
+// Middleware: require admin role
+function requireAdmin(req: Request, res: Response, next: NextFunction) {
+  requireAuth(req, res, () => {
+    if ((req as any).user?.role !== "admin") {
+      res.status(403).json({ error: "Admin access required" });
+      return;
+    }
+    next();
+  });
+}
+
+// ─────────────────────────────────────────────────────────────
+// AUTH ROUTES
+// ─────────────────────────────────────────────────────────────
+
+// POST /api/auth/register
+app.post("/api/auth/register", async (req: Request, res: Response) => {
+  try {
+    const { name, email, password } = req.body;
+    if (!name?.trim() || !email?.trim() || !password) {
+      res.status(400).json({ error: "Name, email, and password are required." });
+      return;
+    }
+    if (password.length < 6) {
+      res.status(400).json({ error: "Password must be at least 6 characters." });
+      return;
+    }
+    if (getUserByEmail(email.toLowerCase())) {
+      res.status(409).json({ error: "An account with this email already exists." });
+      return;
+    }
+    const hash = await bcrypt.hash(password, 10);
+    const userId = createUser(name.trim(), email.toLowerCase().trim(), hash);
+    const user = getUserWithSubscription(userId);
+    const token = signToken(userId);
+    res.cookie(COOKIE_NAME, token, { httpOnly: true, sameSite: "lax", maxAge: 30 * 24 * 60 * 60 * 1000 });
+    res.json({ user: sanitizeUser(user!) });
+  } catch (err) {
+    console.error("[Auth] Register error:", err);
+    res.status(500).json({ error: "Registration failed." });
+  }
+});
+
+// POST /api/auth/login
+app.post("/api/auth/login", async (req: Request, res: Response) => {
+  try {
+    const { email, password } = req.body;
+    if (!email || !password) {
+      res.status(400).json({ error: "Email and password are required." });
+      return;
+    }
+    const dbUser = getUserByEmail(email.toLowerCase().trim());
+    if (!dbUser) {
+      res.status(401).json({ error: "Invalid email or password." });
+      return;
+    }
+    const valid = await bcrypt.compare(password, dbUser.password);
+    if (!valid) {
+      res.status(401).json({ error: "Invalid email or password." });
+      return;
+    }
+    const user = getUserWithSubscription(dbUser.id);
+    const token = signToken(dbUser.id);
+    res.cookie(COOKIE_NAME, token, { httpOnly: true, sameSite: "lax", maxAge: 30 * 24 * 60 * 60 * 1000 });
+    res.json({ user: sanitizeUser(user!) });
+  } catch (err) {
+    console.error("[Auth] Login error:", err);
+    res.status(500).json({ error: "Login failed." });
+  }
+});
+
+// POST /api/auth/logout
+app.post("/api/auth/logout", (_req: Request, res: Response) => {
+  res.clearCookie(COOKIE_NAME);
+  res.json({ ok: true });
+});
+
+// GET /api/auth/me
+app.get("/api/auth/me", requireAuth, (req: Request, res: Response) => {
+  res.json({ user: sanitizeUser((req as any).user) });
+});
+
+// ─────────────────────────────────────────────────────────────
+// PRICING / SUBSCRIPTION ROUTES
+// ─────────────────────────────────────────────────────────────
+
+// GET /api/plans — public
+app.get("/api/plans", (_req: Request, res: Response) => {
+  res.json({ plans: getAllPlans() });
+});
+
+// POST /api/subscription/upgrade — upgrade current user's plan
+app.post("/api/subscription/upgrade", requireAuth, (req: Request, res: Response) => {
+  try {
+    const { planSlug } = req.body;
+    const validSlugs = ["free", "weekly", "monthly"];
+    if (!validSlugs.includes(planSlug)) {
+      res.status(400).json({ error: "Invalid plan." });
+      return;
+    }
+    const userId = (req as any).user.id;
+    const plans = getAllPlans();
+    const plan = plans.find((p) => p.slug === planSlug);
+    if (!plan) { res.status(404).json({ error: "Plan not found." }); return; }
+
+    let expiresAt: string | null = null;
+    if (plan.duration_days > 0) {
+      const d = new Date();
+      d.setDate(d.getDate() + plan.duration_days);
+      expiresAt = d.toISOString();
+    }
+    upgradeUserPlan(userId, planSlug, expiresAt);
+    res.json({ ok: true, plan: plan.name, expiresAt });
+  } catch (err) {
+    console.error("[Subscription] Upgrade error:", err);
+    res.status(500).json({ error: "Upgrade failed." });
+  }
+});
+
+// ─────────────────────────────────────────────────────────────
+// ADMIN ROUTES
+// ─────────────────────────────────────────────────────────────
+
+// GET /api/admin/users
+app.get("/api/admin/users", requireAdmin, (_req: Request, res: Response) => {
+  res.json({ users: getAllUsers() });
+});
+
+// PUT /api/admin/users/:id
+app.put("/api/admin/users/:id", requireAdmin, (req: Request, res: Response) => {
+  try {
+    const userId = parseInt(req.params.id, 10);
+    const { role, planSlug } = req.body;
+    if (role) {
+      if (!["user", "admin"].includes(role)) { res.status(400).json({ error: "Invalid role." }); return; }
+      updateUserRole(userId, role);
+    }
+    if (planSlug) {
+      const plans = getAllPlans();
+      const plan = plans.find((p) => p.slug === planSlug);
+      if (!plan) { res.status(404).json({ error: "Plan not found." }); return; }
+      let expiresAt: string | null = null;
+      if (plan.duration_days > 0) {
+        const d = new Date(); d.setDate(d.getDate() + plan.duration_days);
+        expiresAt = d.toISOString();
+      }
+      upgradeUserPlan(userId, planSlug, expiresAt);
+    }
+    res.json({ ok: true });
+  } catch (err) {
+    console.error("[Admin] Update user error:", err);
+    res.status(500).json({ error: "Failed to update user." });
+  }
+});
+
+// DELETE /api/admin/users/:id
+app.delete("/api/admin/users/:id", requireAdmin, (req: Request, res: Response) => {
+  try {
+    const userId = parseInt(req.params.id, 10);
+    deleteUser(userId);
+    res.json({ ok: true });
+  } catch (err) {
+    console.error("[Admin] Delete user error:", err);
+    res.status(500).json({ error: "Failed to delete user." });
+  }
+});
+
+// GET /api/admin/plans
+app.get("/api/admin/plans", requireAdmin, (_req: Request, res: Response) => {
+  res.json({ plans: getAllPlans() });
+});
+
+// PUT /api/admin/plans/:id
+app.put("/api/admin/plans/:id", requireAdmin, (req: Request, res: Response) => {
+  try {
+    const planId = parseInt(req.params.id, 10);
+    const { price, currency, ai_video_limit, description, name } = req.body;
+    const updates: Record<string, unknown> = {};
+    if (price !== undefined) updates.price = parseFloat(price);
+    if (currency !== undefined) updates.currency = currency;
+    if (ai_video_limit !== undefined) updates.ai_video_limit = parseInt(ai_video_limit, 10);
+    if (description !== undefined) updates.description = description;
+    if (name !== undefined) updates.name = name;
+    if (Object.keys(updates).length === 0) { res.status(400).json({ error: "No fields to update." }); return; }
+    updatePlan(planId, updates as any);
+    res.json({ ok: true });
+  } catch (err) {
+    console.error("[Admin] Update plan error:", err);
+    res.status(500).json({ error: "Failed to update plan." });
+  }
+});
+
+// ─────────────────────────────────────────────────────────────
+// HELPER: strip password from user before sending to client
+// ─────────────────────────────────────────────────────────────
+
+function sanitizeUser(user: any) {
+  if (!user) return null;
+  const { password, ...safe } = user;
+  return safe;
+}
 
 // Lazy/Safe Gemini initialization
 let aiClient: GoogleGenAI | null = null;
@@ -130,7 +427,7 @@ app.post(
         outputPath,
       ];
 
-      await execFileAsync("ffmpeg", args);
+      await runFFmpeg(args);
 
       const mp4Buffer = await fsPromises.readFile(outputPath);
 
@@ -259,7 +556,7 @@ app.post(
         args.push("-movflags", "+faststart", outputPath);
       }
 
-      await execFileAsync("ffmpeg", args);
+      await runFFmpeg(args);
 
       const mp4Buffer = await fsPromises.readFile(outputPath);
 
@@ -301,60 +598,109 @@ if (!fs.existsSync(ASSETS_DIR)) {
   fs.mkdirSync(ASSETS_DIR, { recursive: true });
 }
 
-// 1. Chunked Asset Upload: Bypasses Cloud Run 32MB payload limit for arbitrary sized videos
+// Multer instance that accepts any field name for chunk uploads (stores to tmpdir)
+const chunkUpload = multer({
+  dest: os.tmpdir(),
+  limits: { fileSize: 50 * 1024 * 1024 }, // 50MB per chunk
+});
+
+// 1. Chunked Asset Upload — stores chunks to disk and reassembles on final chunk
 app.post(
   "/api/media/chunk-upload",
-  express.raw({ type: "*/*", limit: "25mb" }),
+  chunkUpload.single("chunk"),
   async (req, res) => {
+    const tempUploadPath = (req as any).file?.path;
     try {
       const mediaId = (req.query.mediaId as string) || `asset_${Date.now()}`;
       const chunkIdx = parseInt((req.query.chunkIndex as string) || "0", 10);
       const totalChunks = parseInt((req.query.totalChunks as string) || "1", 10);
       const fileName = (req.query.fileName as string) || "video.mp4";
 
+      // Fallback: if multer didn't get a file field, try express.raw body
+      let chunkBuffer: Buffer | null = null;
+      if (tempUploadPath) {
+        chunkBuffer = await fsPromises.readFile(tempUploadPath);
+        try { await fsPromises.unlink(tempUploadPath); } catch {}
+      } else if (Buffer.isBuffer((req as any).body) && (req as any).body.length > 0) {
+        chunkBuffer = (req as any).body as Buffer;
+      }
+
+      if (!chunkBuffer || chunkBuffer.length === 0) {
+        return res.status(400).json({ error: "Empty chunk payload — no file data received." });
+      }
+
       const chunkDir = path.join(ASSETS_DIR, mediaId);
       await fsPromises.mkdir(chunkDir, { recursive: true });
 
       const chunkPath = path.join(chunkDir, `part_${chunkIdx.toString().padStart(5, "0")}.dat`);
-      const bodyBuffer = req.body as Buffer;
-      if (!bodyBuffer || bodyBuffer.length === 0) {
-        return res.status(400).json({ error: "Empty chunk payload." });
-      }
-      await fsPromises.writeFile(chunkPath, bodyBuffer);
+      await fsPromises.writeFile(chunkPath, chunkBuffer);
 
-      if (chunkIdx === totalChunks - 1) {
-        // Reassemble final file
-        const finalPath = path.join(ASSETS_DIR, `${mediaId}.mp4`);
-        const writeStream = fs.createWriteStream(finalPath);
+        if (chunkIdx === totalChunks - 1) {
+        // Reassemble all chunks into a single raw file
+        const ext = path.extname(fileName) || ".mp4";
+        const rawAssembledPath = path.join(ASSETS_DIR, `${mediaId}_raw${ext}`);
+        const mp4Path = path.join(ASSETS_DIR, `${mediaId}.mp4`);
 
+        const writeStream = fs.createWriteStream(rawAssembledPath);
         for (let i = 0; i < totalChunks; i++) {
           const partFile = path.join(chunkDir, `part_${i.toString().padStart(5, "0")}.dat`);
           if (fs.existsSync(partFile)) {
             const buf = await fsPromises.readFile(partFile);
-            writeStream.write(buf);
+            await new Promise<void>((resolve, reject) => {
+              writeStream.write(buf, (err) => (err ? reject(err) : resolve()));
+            });
             try { await fsPromises.unlink(partFile); } catch {}
           }
         }
-        writeStream.end();
-        await new Promise((resolve) => writeStream.on("finish", () => resolve(undefined)));
+        await new Promise<void>((resolve, reject) => {
+          writeStream.end();
+          writeStream.on("finish", () => resolve());
+          writeStream.on("error", reject);
+        });
         try { await fsPromises.rm(chunkDir, { recursive: true, force: true }); } catch {}
 
+        // Re-mux to a proper seekable MP4 with moov at start (faststart).
+        // This normalizes MOV, WebM, MKV, AVI, etc. — fixes "moov atom not found" on any source.
+        try {
+          await runFFmpeg([
+            "-y",
+            "-analyzeduration", "100M",
+            "-probesize", "100M",
+            "-i", rawAssembledPath,
+            "-c", "copy",              // stream copy — no re-encode, very fast
+            "-movflags", "+faststart", // move moov atom to start for immediate seek
+            mp4Path,
+          ]);
+          // Clean up the raw assembled file now that we have a clean MP4
+          try { await fsPromises.unlink(rawAssembledPath); } catch {}
+        } catch (remuxErr: any) {
+          // If stream copy fails (e.g., codec not in MP4), fall back to raw file
+          console.warn("Re-mux stream copy failed, using raw assembled file:", remuxErr.message?.substring(0, 120));
+          try { await fsPromises.rename(rawAssembledPath, mp4Path); } catch {
+            try { await fsPromises.copyFile(rawAssembledPath, mp4Path); } catch {}
+          }
+        }
+
+        const stat = await fsPromises.stat(mp4Path);
         return res.json({
           success: true,
           ready: true,
           mediaId,
           fileName,
-          size: (await fsPromises.stat(finalPath)).size,
+          size: stat.size,
         });
       }
 
       return res.json({ success: true, ready: false, chunkIndex: chunkIdx });
     } catch (err: any) {
+      // Clean up multer temp file on error
+      if (tempUploadPath) { try { await fsPromises.unlink(tempUploadPath); } catch {} }
       console.error("Chunk upload error:", err);
       return res.status(500).json({ error: err.message || "Chunk upload failure" });
     }
   }
 );
+
 
 // 2. High-Performance Timeline Render via Pre-Uploaded Assets (Zero Payload Limit)
 app.post("/api/export/render-timeline-json", async (req, res) => {
@@ -439,11 +785,13 @@ app.post("/api/export/render-timeline-json", async (req, res) => {
       }
 
       filterParts.push(`fps=${fps}`);
-      // Ensure segment NEVER drops frames or stops early on EOF
-      filterParts.push(`tpad=stop_mode=clone:stop_duration=${Math.ceil(duration) + 10}`);
+      // Small frame-hold buffer (2s) to prevent EOF early termination; -t caps the output duration.
+      filterParts.push(`tpad=stop_mode=clone:stop_duration=${Math.ceil(duration) + 2}`);
 
       const segArgs = [
         "-y",
+        // Fast input-level seek: safe because every uploaded file is a faststart MP4
+        // (moov atom at start, guaranteed by the re-mux step in the chunk upload route).
         "-ss", String(trimStart),
         "-i", sourcePath,
         "-vf", filterParts.join(","),
@@ -453,11 +801,12 @@ app.post("/api/export/render-timeline-json", async (req, res) => {
         "-pix_fmt", "yuv420p",
         "-profile:v", "high",
         "-preset", "ultrafast",
+        "-threads", "0",
         "-b:v", bitrate,
         segPath,
       ];
 
-      await execFileAsync("ffmpeg", segArgs);
+      await runFFmpeg(segArgs);
       segmentPaths.push(segPath);
     }
 
@@ -514,7 +863,7 @@ app.post("/api/export/render-timeline-json", async (req, res) => {
     }
 
     try {
-      await execFileAsync("ffmpeg", finalArgs);
+      await runFFmpeg(finalArgs);
     } catch {
       // Fallback: re-encode concat stream with libx264
       const fallbackArgs = [
@@ -542,7 +891,7 @@ app.post("/api/export/render-timeline-json", async (req, res) => {
         fallbackArgs.push("-t", String(totalDuration));
       }
       fallbackArgs.push("-movflags", "+faststart", outputPath);
-      await execFileAsync("ffmpeg", fallbackArgs);
+      await runFFmpeg(fallbackArgs);
     }
 
     const outputBuffer = await fsPromises.readFile(outputPath);
@@ -613,6 +962,8 @@ app.post(
         return res.status(400).json({ error: "Timeline contains no video cuts to render." });
       }
 
+      cuts.sort((a: any, b: any) => Number(a.startTime || 0) - Number(b.startTime || 0));
+
       const segmentPaths: string[] = [];
 
       // Step 1: Render each video segment cleanly with exact trim, scaling, speed, and frame hold
@@ -632,14 +983,7 @@ app.post(
         }
 
         if (!sourcePath || (!sourcePath.startsWith("http") && !fs.existsSync(sourcePath))) {
-          if (fileMap.size > 0) {
-            sourcePath = Array.from(fileMap.values())[0];
-          }
-        }
-
-        if (!sourcePath || (!sourcePath.startsWith("http") && !fs.existsSync(sourcePath))) {
-          console.warn(`Source file not found for cut ${i} (${cut.fileKey || cut.mediaId}), skipping.`);
-          continue;
+          throw new Error(`Source file not found for timeline clip ${i + 1} (${cut.fileKey || cut.mediaId}).`);
         }
 
         const segPath = path.join(tempDir, `seg_${i.toString().padStart(4, "0")}.mp4`);
@@ -674,13 +1018,14 @@ app.post(
           }
         }
 
+        // Speed ramp
         if (Math.abs(speed - 1.0) > 0.005) {
           filterParts.push(`setpts=PTS/${speed}`);
         }
 
         filterParts.push(`fps=${fps}`);
-        // Ensure segment NEVER ends prematurely on EOF by cloning last frame for the required duration
-        filterParts.push(`tpad=stop_mode=clone:stop_duration=${Math.ceil(duration) + 10}`);
+        // Clamp frame hold to prevent segment from ending prematurely on short/looped source
+        filterParts.push(`tpad=stop_mode=clone:stop_duration=${Math.ceil(duration) + 2}`);
 
         const filterString = filterParts.join(",");
 
@@ -689,17 +1034,18 @@ app.post(
           "-ss", String(trimStart),
           "-i", sourcePath,
           "-vf", filterString,
-          "-t", String(duration), // Guarantees exact cut duration on timeline
-          "-an", // Strictly SILENCE camera audio from videos
+          "-t", String(duration),
+          "-an",                        // silence camera audio from video segments
           "-c:v", "libx264",
           "-pix_fmt", "yuv420p",
           "-profile:v", "high",
-          "-preset", "ultrafast",
+          "-preset", "ultrafast",       // fastest encode pass for segments
+          "-threads", "0",              // use all CPU cores
           "-b:v", bitrate,
           segPath,
         ];
 
-        await execFileAsync("ffmpeg", segArgs);
+        await runFFmpeg(segArgs);
         segmentPaths.push(segPath);
       }
 
@@ -717,46 +1063,155 @@ app.post(
       const outputPath = path.join(tempDir, "master_output.mp4");
       tempFilesCreated.push(outputPath);
 
-      // Step 3: Concatenate segments and map audio track with exact timeline duration
+      const xfadeTypes: Record<string, string> = {
+        Crossfade: "fade",
+        "Dip to Black": "fadeblack",
+        "Zoom In": "zoomin",
+        Slide: "slideleft",
+        Wipe: "wipeleft",
+        Glitch: "pixelize",
+      };
+      const transitionGraph: string[] = [];
+      cuts.forEach((_: any, index: number) => {
+        transitionGraph.push(`[${index}:v]settb=AVTB,setpts=PTS-STARTPTS[src${index}]`);
+      });
+
+      let videoLabel = "src0";
+      let assembledDuration = Math.max(0.1, Number(cuts[0]?.duration) || 0.1);
+      for (let index = 1; index < cuts.length; index++) {
+        const previousCut = cuts[index - 1];
+        const currentCut = cuts[index];
+        const transitionName = xfadeTypes[currentCut.transitionIn] || xfadeTypes[previousCut.transitionOut];
+        const nextLabel = `joined${index}`;
+
+        if (transitionName) {
+          const previousDuration = Math.max(0.1, Number(previousCut.duration) || 0.1);
+          const currentDuration = Math.max(0.1, Number(currentCut.duration) || 0.1);
+          const requestedDuration = Number(currentCut.transitionDuration ?? previousCut.transitionDuration ?? 0.5);
+          const transitionDuration = Math.max(0.04, Math.min(
+            Number.isFinite(requestedDuration) ? requestedDuration : 0.5,
+            2,
+            previousDuration / 2,
+            currentDuration / 2,
+          ));
+          const offset = Math.max(0, assembledDuration - transitionDuration);
+          transitionGraph.push(
+            `[${videoLabel}][src${index}]xfade=transition=${transitionName}:duration=${transitionDuration.toFixed(3)}:offset=${offset.toFixed(3)}[${nextLabel}]`,
+          );
+          assembledDuration += currentDuration - transitionDuration;
+        } else {
+          transitionGraph.push(`[${videoLabel}][src${index}]concat=n=2:v=1:a=0[${nextLabel}]`);
+          assembledDuration += Math.max(0.1, Number(currentCut.duration) || 0.1);
+        }
+        videoLabel = nextLabel;
+      }
+
+      const hasTransitions = cuts.slice(1).some((cut: any, index: number) =>
+        Boolean(xfadeTypes[cut.transitionIn] || xfadeTypes[cuts[index].transitionOut]),
+      );
+      const outputGraph = hasTransitions ? [...transitionGraph] : [];
+      const outputDuration = hasTransitions
+        ? Math.max(0.1, totalDuration > 0 ? Math.min(totalDuration, assembledDuration) : assembledDuration)
+        : totalDuration;
+      const overlays = Array.isArray(manifest.overlays)
+        ? manifest.overlays.filter((overlay: any) => typeof overlay.text === "string" && overlay.text.trim())
+        : [];
+      const hasVideoFilters = hasTransitions || overlays.length > 0;
+      let finalVideoLabel = videoLabel;
+      const overlayTextWrites: Promise<void>[] = [];
+      if (overlays.length > 0) {
+        if (!hasTransitions) {
+          outputGraph.push("[0:v]null[overlaybase]");
+          finalVideoLabel = "overlaybase";
+        }
+
+        overlays.forEach((overlay: any, index: number) => {
+          const style = overlay.style || {};
+          const start = Math.max(0, Number(overlay.startTime) || 0);
+          const duration = Math.max(0.1, Number(overlay.duration) || 4);
+          const end = start + duration;
+          const motionDuration = Math.max(0.15, Math.min(1.5, Number(style.animationDuration) || 0.65));
+          const progress = `min(1\\,max(0\\,(t-${start.toFixed(3)})/${motionDuration.toFixed(3)}))`;
+          const fontSize = Math.max(8, Math.round((Number(style.fontSize) || 32) * targetWidth / 1920));
+          const positionX = Math.max(0, Math.min(100, Number(style.positionX) || 50));
+          const positionY = Math.max(0, Math.min(100, Number(style.positionY) || 50));
+          const baseX = style.align === "left"
+            ? `w*${positionX}/100`
+            : style.align === "right"
+            ? `w*${positionX}/100-text_w`
+            : `w*${positionX}/100-text_w/2`;
+          const baseY = `h*${positionY}/100-text_h/2`;
+          let x = baseX;
+          let y = baseY;
+          let alpha = "1";
+          let size = String(fontSize);
+          const animation = style.animation || "none";
+          if (animation === "fade" || animation === "rise" || animation === "slide" || animation === "pop" || animation === "reveal") {
+            alpha = progress;
+          }
+          if (animation === "rise") y = `(${baseY})+(1-${progress})*36`;
+          if (animation === "slide") x = `(${baseX})-(1-${progress})*52`;
+          if (animation === "pop") size = `${fontSize}*(0.72+0.28*${progress})`;
+          if (animation === "reveal") x = `(${baseX})-(1-${progress})*text_w*0.35`;
+
+          const textFilePath = path.join(tempDir, `overlay_${index}.txt`);
+          tempFilesCreated.push(textFilePath);
+          const fontPath = findOverlayFont(String(style.fontFamily || "sans-serif"), Boolean(style.bold));
+          const fontOption = fontPath ? `fontfile='${escapeFilterPath(fontPath)}':` : "";
+          const color = ffmpegColor(style.color, "0xFFFFFF");
+          const background = style.backgroundColor && style.backgroundColor !== "transparent"
+            ? `:box=1:boxcolor=${ffmpegColor(style.backgroundColor, "black@0.75")}:boxborderw=14`
+            : "";
+          const stroke = Number(style.outlineWidth) > 0
+            ? `:borderw=${Math.max(1, Math.round(Number(style.outlineWidth) * targetWidth / 1920))}:bordercolor=${ffmpegColor(style.outlineColor, "0x000000")}`
+            : "";
+          const shadow = style.shadow === false ? "" : ":shadowcolor=black@0.8:shadowx=2:shadowy=3";
+          const nextLabel = `titleoverlay${index}`;
+          const previousLabel = index === 0 ? finalVideoLabel : `titleoverlay${index - 1}`;
+          outputGraph.push(
+            `[${previousLabel}]drawtext=${fontOption}textfile='${escapeFilterPath(textFilePath)}':fontcolor=${color}:fontsize='${size}':x='${x}':y='${y}':alpha='${alpha}'${background}${stroke}${shadow}:enable='between(t\\,${start.toFixed(3)}\\,${end.toFixed(3)})'[${nextLabel}]`,
+          );
+          finalVideoLabel = nextLabel;
+          overlayTextWrites.push(fsPromises.writeFile(textFilePath, String(overlay.text), "utf-8"));
+        });
+        await Promise.all(overlayTextWrites);
+      }
+
+      // Step 3: Join clips with transition filters when configured, otherwise use concat copy.
       const audioSourcePath = audioTrack
         ? fileMap.get(audioTrack.fileKey) || fileMap.get(audioTrack.fileName) || fileMap.get("audio_soundtrack")
         : null;
 
-      let finalArgs: string[] = [
-        "-y",
-        "-f", "concat",
-        "-safe", "0",
-        "-i", concatListPath,
-      ];
+      const finalArgs: string[] = ["-y"];
+      if (hasTransitions) {
+        segmentPaths.forEach((segmentPath) => finalArgs.push("-i", segmentPath));
+      } else {
+        finalArgs.push("-f", "concat", "-safe", "0", "-i", concatListPath);
+      }
+      if (hasVideoFilters) finalArgs.push("-filter_complex", outputGraph.join(";"), "-map", `[${finalVideoLabel}]`);
 
       if (audioSourcePath && fs.existsSync(audioSourcePath)) {
         const audioTrim = Math.max(0, parseFloat(audioTrack.trimStart || "0"));
         finalArgs.push("-ss", String(audioTrim));
         finalArgs.push("-i", audioSourcePath);
+        if (!hasVideoFilters) finalArgs.push("-map", "0:v:0");
+        finalArgs.push("-map", `${hasTransitions ? segmentPaths.length : 1}:a:0`);
         finalArgs.push(
-          "-c:v", "copy",
-          "-c:a", "aac",
-          "-b:a", "256k",
-          "-ar", "48000",
-          "-map", "0:v:0",
-          "-map", "1:a:0"
+          "-c:v", hasVideoFilters ? "libx264" : "copy",
+          ...(hasVideoFilters ? ["-preset", "ultrafast", "-pix_fmt", "yuv420p", "-b:v", bitrate] : []),
+          "-c:a", "aac", "-b:a", "256k", "-ar", "48000", "-threads", "0",
         );
-        if (totalDuration > 0) {
-          finalArgs.push("-t", String(totalDuration));
-        }
-        finalArgs.push("-movflags", "+faststart", outputPath);
       } else {
-        // Output clean video without audio track
-        finalArgs.push("-c:v", "copy", "-an");
-        if (totalDuration > 0) {
-          finalArgs.push("-t", String(totalDuration));
-        }
-        finalArgs.push("-movflags", "+faststart", outputPath);
+        finalArgs.push("-c:v", hasVideoFilters ? "libx264" : "copy", "-an", "-threads", "0");
+        if (hasVideoFilters) finalArgs.push("-preset", "ultrafast", "-pix_fmt", "yuv420p", "-b:v", bitrate);
       }
+      if (outputDuration > 0) finalArgs.push("-t", String(outputDuration));
+      finalArgs.push("-movflags", "+faststart", outputPath);
 
       try {
-        await execFileAsync("ffmpeg", finalArgs);
+        await runFFmpeg(finalArgs);
       } catch (concatErr) {
+        if (hasVideoFilters) throw concatErr;
         console.warn("Concat copy fallback to re-encode:", concatErr);
         // Fallback: re-encode concat stream with libx264 for 100% reliability
         const fallbackArgs = [
@@ -794,7 +1249,7 @@ app.post(
           }
           fallbackArgs.push("-movflags", "+faststart", outputPath);
         }
-        await execFileAsync("ffmpeg", fallbackArgs);
+        await runFFmpeg(fallbackArgs);
       }
 
       const outputBuffer = await fsPromises.readFile(outputPath);
@@ -819,16 +1274,47 @@ app.post(
 
       return res.status(500).json({
         error: "Failed to render timeline with FFmpeg",
-        details: err?.message || String(err),
+        details: [err?.message, err?.stderr?.toString().trim()]
+          .filter(Boolean)
+          .join("\n") || String(err),
       });
     }
   }
 );
 
 // API: AI Media Analysis & Smart Cut Plan
-app.post("/api/ai/analyze-media", async (req, res) => {
+// Protected: requires auth + enforces free plan AI video generation limit
+app.post("/api/ai/consume-generation", requireAuth, (req: Request, res: Response) => {
+  const user = (req as any).user;
+  if (!consumeAiVideoUsage(user.id)) {
+    res.status(403).json({
+      error: "free_limit_reached",
+      message: `You've used all ${user.ai_video_limit} free AI auto-video generations. Upgrade your plan to continue.`,
+    });
+    return;
+  }
+
+  const updatedUser = getUserWithSubscription(user.id);
+  res.json({
+    ok: true,
+    ai_videos_used: updatedUser?.ai_videos_used ?? user.ai_videos_used + 1,
+    ai_video_limit: updatedUser?.ai_video_limit ?? user.ai_video_limit,
+  });
+});
+
+app.post("/api/ai/analyze-media", requireAuth, async (req, res) => {
   try {
+    const user = (req as any).user;
+    if (!consumeAiVideoUsage(user.id)) {
+      res.status(403).json({
+        error: "free_limit_reached",
+        message: `You've used all ${user.ai_video_limit} free AI auto-video generations. Upgrade your plan to continue.`,
+      });
+      return;
+    }
+
     const { mediaList, stylePreset, targetDuration, targetAspectRatio } = req.body;
+
     const ai = getGeminiClient();
 
     if (!ai) {
@@ -990,21 +1476,28 @@ Return a JSON object with:
 const handleTranscription = async (req: express.Request, res: express.Response) => {
   try {
     const audioSnippetText = req.body.audioSnippetText || "";
-    const fileName = req.body.fileName || "Video Track";
-    const duration = req.body.duration || req.body.audioDuration || 15;
+    const fileName = req.body.fileName || req.body.projectName || "Video Track";
+    const duration = Number(req.body.duration || req.body.audioDuration || 15);
     const style = req.body.style || "YouTube";
+    const clipNames = Array.isArray(req.body.clipNames) ? req.body.clipNames : [];
+    const mediaNames = Array.isArray(req.body.mediaNames) ? req.body.mediaNames : [];
     const ai = getGeminiClient();
 
     if (!ai) {
       return res.json({
         success: true,
-        source: "local-generator",
-        captions: generateHeuristicCaptions(fileName, duration, style),
+        source: "project-context-generator",
+        captions: generateHeuristicCaptions(fileName, duration, style, {
+          projectName: req.body.projectName || fileName,
+          clipNames,
+          mediaNames,
+        }),
       });
     }
 
     const prompt = `You are a subtitle and caption generator for AutoCut AI.
-Given a media asset named "${fileName}" with duration ${duration || 15} seconds:
+Given a media project named "${req.body.projectName || fileName}" with duration ${duration || 15} seconds.
+Actual project context: ${JSON.stringify({ clipNames: clipNames.slice(0, 8), mediaNames: mediaNames.slice(0, 8) })}
 ${audioSnippetText ? `Spoken audio fragment: "${audioSnippetText}"` : "Generate contextual, engaging speech captions and subtitle timestamps suitable for a modern YouTube video or Short."}
 Caption style requested: "${style || "YouTube"}".
 
@@ -1031,17 +1524,24 @@ Return ONLY JSON:
     });
 
     const parsed = JSON.parse(response.text || "{}");
+    const captions = Array.isArray(parsed.captions) ? parsed.captions : [];
     res.json({
       success: true,
       source: "gemini-3.8-flash",
-      captions: parsed.captions || [],
+      captions,
     });
   } catch (error: any) {
     console.error("Transcription error:", error);
+    const fallbackFileName = req.body.fileName || req.body.projectName || "Video Track";
+    const fallbackDuration = Number(req.body.duration || req.body.audioDuration || 15);
     res.json({
       success: true,
       source: "fallback-generator",
-      captions: generateHeuristicCaptions(req.body.fileName, req.body.duration || req.body.audioDuration, req.body.style),
+      captions: generateHeuristicCaptions(fallbackFileName, fallbackDuration, req.body.style || "YouTube", {
+        projectName: req.body.projectName || fallbackFileName,
+        clipNames: Array.isArray(req.body.clipNames) ? req.body.clipNames : [],
+        mediaNames: Array.isArray(req.body.mediaNames) ? req.body.mediaNames : [],
+      }),
     });
   }
 };
@@ -1253,31 +1753,95 @@ function generateHeuristicAnalysis(mediaList: any[] = [], stylePreset: string = 
   };
 }
 
-function generateHeuristicCaptions(fileName: string, duration: number = 15, style: string = "YouTube") {
-  const dur = Math.max(duration || 12, 10);
+export function generateHeuristicCaptions(
+  fileName: string,
+  duration: number = 15,
+  style: string = "YouTube",
+  context: { projectName?: string; clipNames?: string[]; mediaNames?: string[] } = {},
+) {
+  const dur = Math.max(Number(duration) || 12, 10);
+  const cleanFileName = (fileName || context.projectName || "Video Track")
+    .replace(/[_-]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  const allKeywords = [
+    ...(context.clipNames || []),
+    ...(context.mediaNames || []),
+    cleanFileName,
+  ]
+    .flatMap((value) => String(value).split(/[^a-zA-Z0-9]+/))
+    .map((word) => word.trim())
+    .filter((word) => word.length > 3)
+    .slice(0, 8);
+
+  const uniqueWords = Array.from(new Set(allKeywords.map((w) => w.charAt(0).toUpperCase() + w.slice(1))));
+  const primaryWord = uniqueWords[0] || "Story";
+  const secondaryWord = uniqueWords[1] || "Motion";
+  const tertiaryWord = uniqueWords[2] || "Focus";
+  const projectLabel = context.projectName || cleanFileName || "This edit";
+  const captionStyle = (style || "YouTube").toLowerCase();
+
+  const phraseBank = {
+    youtube: [
+      `Opening on ${projectLabel} with a clean visual hook.`,
+      `${primaryWord} leads the scene while the timing stays crisp and clear.`,
+      `${secondaryWord} and ${tertiaryWord} drive the momentum through the cut.`,
+      `This final section wraps the story with a polished ending.`,
+    ],
+    tiktok: [
+      `Hook in instantly on ${projectLabel}.`,
+      `${primaryWord} hits hard and keeps the pace moving.`,
+      `The energy spikes as ${secondaryWord} takes over the frame.`,
+      `That final beat closes the story with impact.`,
+    ],
+    shorts: [
+      `Quick start: ${projectLabel} drops in fast.`,
+      `${primaryWord} pushes the cut forward with strong rhythm.`,
+      `${secondaryWord} creates a punchy transition at the key moment.`,
+      `Ending on a strong visual beat to keep the viewer hooked.`,
+    ],
+    cinematic: [
+      `The opening frame settles into ${projectLabel} with cinematic flow.`,
+      `${primaryWord} guides the visual rhythm across the scene.`,
+      `The pacing deepens as ${secondaryWord} meets ${tertiaryWord}.`,
+      `A refined ending leaves the final shot feeling complete.`,
+    ],
+  };
+
+  const phrases = phraseBank[captionStyle as keyof typeof phraseBank] || phraseBank.youtube;
+  const endTimeBase = Math.max(dur * 0.2, 3);
+
   return [
     {
       id: "c1",
       startTime: 0.5,
-      endTime: Math.min(3.5, dur * 0.25),
-      text: "Welcome back to today's video!",
-      highlightWords: ["Welcome", "today's", "video"],
+      endTime: Math.min(endTimeBase, dur * 0.3),
+      text: phrases[0],
+      highlightWords: [projectLabel.replace(/\s+/g, " ").split(" ")[0] || "Opening", projectLabel],
     },
     {
       id: "c2",
       startTime: Math.min(4.0, dur * 0.3),
-      endTime: Math.min(7.5, dur * 0.6),
-      text: "Notice how smooth the cinematic transitions look.",
-      highlightWords: ["smooth", "cinematic", "transitions"],
+      endTime: Math.min(Math.max(endTimeBase + 2.5, 7.5), dur * 0.6),
+      text: phrases[1],
+      highlightWords: [primaryWord, "timing", "crisp"],
     },
     {
       id: "c3",
-      startTime: Math.min(8.0, dur * 0.65),
-      endTime: Math.min(11.5, dur * 0.95),
-      text: "Don't forget to like and subscribe for more.",
-      highlightWords: ["like", "subscribe"],
+      startTime: Math.min(8.0, dur * 0.6),
+      endTime: Math.min(Math.max(endTimeBase + 5.5, 11.5), dur * 0.82),
+      text: phrases[2],
+      highlightWords: [secondaryWord, tertiaryWord, "momentum"],
     },
-  ];
+    {
+      id: "c4",
+      startTime: Math.min(12.0, dur * 0.8),
+      endTime: Math.max(14.0, Math.min(dur - 0.5, dur * 0.96)),
+      text: phrases[3],
+      highlightWords: ["final", "story", "ending"],
+    },
+  ].filter((item) => item.endTime > item.startTime);
 }
 
 function generateHeuristicYouTubePackage(projectName: string, stylePreset: string, duration: number, clipNames: string[] = []) {
@@ -1394,8 +1958,8 @@ async function startServer() {
     });
   }
 
-  app.listen(PORT, "0.0.0.0", () => {
-    console.log(`AutoCut AI Server running on http://0.0.0.0:${PORT}`);
+  app.listen(PORT, "127.0.0.1", () => {
+    console.log(`AutoCut AI Server running on http://127.0.0.1:${PORT}`);
   });
 }
 

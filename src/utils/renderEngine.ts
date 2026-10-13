@@ -13,7 +13,6 @@ import {
   generateCinematicAmbientWav,
   generateUpbeatVlogWav,
 } from "./audioSynth";
-import { renderTimelineWithGoogleEngine } from "./googleRenderEngine";
 import { renderTimelineWithCloudEngine } from "./cloudRenderPipeline";
 
 export type { RenderProgress, ExportSettings };
@@ -220,7 +219,11 @@ async function renderOfflineAudioMix(
 
       const clipStart = Math.max(0, clip.startTime);
       const clipOffset = Math.max(0, clip.trimStart || 0);
-      const clipDuration = Math.min(clip.duration, buffer.duration - clipOffset);
+      const clipEndTrim = Math.max(0, clip.trimEnd || 0);
+      const clipDuration = Math.max(
+        0.1,
+        Math.min(clip.duration, Math.max(0, buffer.duration - clipOffset - clipEndTrim))
+      );
 
       if (clipStart < totalDuration) {
         if (clip.duration > buffer.duration) {
@@ -229,7 +232,7 @@ async function renderOfflineAudioMix(
         source.start(
           clipStart,
           clipOffset,
-          Math.min(clip.duration, totalDuration - clipStart)
+          Math.min(clipDuration, totalDuration - clipStart)
         );
       }
     } catch (schedErr) {
@@ -273,14 +276,11 @@ export async function renderTimelineWithFFmpegServer(
 
   // 2. Fetch media files/blobs
   const mediaBlobs = new Map<string, Blob>();
-  const cuts = targetTrack.clips;
+  const cuts = [...targetTrack.clips].sort((a, b) => a.startTime - b.startTime);
 
   for (const cut of cuts) {
     if (!mediaBlobs.has(cut.mediaId)) {
-      const item =
-        findMediaItem(mediaItems, cut.mediaId) ||
-        mediaItems.find((m) => m.id === cut.mediaId) ||
-        mediaItems.find((m) => m.type === "video");
+      const item = findMediaItem(mediaItems, cut.mediaId);
       if (item) {
         if (item.file) {
           mediaBlobs.set(cut.mediaId, item.file);
@@ -340,15 +340,16 @@ export async function renderTimelineWithFFmpegServer(
   const fileName = exportSettings?.fileName || `${project.name.replace(/\s+/g, "_")}.mp4`;
 
   const cutsPayload = cuts.map((c) => {
-    const item =
-      findMediaItem(mediaItems, c.mediaId) ||
-      mediaItems.find((m) => m.id === c.mediaId) ||
-      mediaItems.find((m) => m.type === "video");
+    const item = findMediaItem(mediaItems, c.mediaId);
+    if (!item || !mediaBlobs.has(c.mediaId)) {
+      throw new Error(`Source media for timeline clip "${c.label || c.id}" is unavailable.`);
+    }
     return {
       fileKey: `media_${c.mediaId}`,
       fileName: `media_${c.mediaId}.mp4`,
       mediaId: c.mediaId,
       url: item?.url,
+      startTime: c.startTime,
       trimStart: c.trimStart || 0,
       duration: c.duration,
       speed: c.speed || 1,
@@ -405,7 +406,7 @@ export async function renderTimelineWithFFmpegServer(
 
   if (!res.ok) {
     const errData = await res.json().catch(() => ({}));
-    throw new Error(errData.error || errData.details || `FFmpeg render error (${res.status})`);
+    throw new Error(errData.details || errData.error || `FFmpeg render error (${res.status})`);
   }
 
   const mp4Blob = await res.blob();
@@ -432,37 +433,27 @@ export async function renderTimelineWithFFmpegServer(
   };
 }
 
+/**
+ * Main render entry-point.
+ * Always uses the local FFmpeg chunk-upload JSON pipeline for:
+ *  - Zero black frames (native FFmpeg frame-accurate seek)
+ *  - No real-time recording lag (encoding at CPU speed, not playback speed)
+ *  - Broadcast H.264 / AAC MP4 output
+ */
 export async function renderTimelineToVideo(
   options: RenderTimelineOptions
 ): Promise<{ blob: Blob; url: string; mimeType: string; extension: string }> {
-  try {
-    options.onProgress({
-      isRendering: true,
-      percent: 5,
-      progress: 5,
-      currentSecond: 0,
-      totalSeconds: options.totalDuration,
-      stage: "preparing",
-      status: "Initializing cloud high-speed FFmpeg engine (Chunked streaming)...",
-    });
-    return await renderTimelineWithCloudEngine(options);
-  } catch (cloudErr) {
-    console.warn("Cloud render engine notice, falling back to Google engine:", cloudErr);
-    try {
-      return await renderTimelineWithGoogleEngine(options);
-    } catch (googleErr) {
-      console.warn("Google render notice, falling back to canvas:", googleErr);
-      return await renderProjectVideo(
-        options.project,
-        options.tracks,
-        options.mediaItems,
-        options.captions,
-        options.onProgress,
-        options.exportSettings,
-        options.abortSignal
-      );
-    }
-  }
+  options.onProgress({
+    isRendering: true,
+    percent: 3,
+    progress: 3,
+    currentSecond: 0,
+    totalSeconds: options.totalDuration,
+    stage: "preparing",
+    status: "Starting local FFmpeg render engine...",
+  });
+  // Always use the fast local FFmpeg pipeline — no canvas, no MediaRecorder
+  return renderTimelineWithCloudEngine(options);
 }
 
 export async function renderProjectVideo(
@@ -474,7 +465,7 @@ export async function renderProjectVideo(
   exportSettings?: ExportSettings,
   abortSignal?: AbortSignal
 ): Promise<{ blob: Blob; url: string; mimeType: string; extension: string }> {
-  // 1. Calculate timeline duration
+  // Calculate timeline duration
   let calculatedDuration = 0;
   tracks.forEach((t) => {
     t.clips.forEach((c) => {
@@ -493,408 +484,18 @@ export async function renderProjectVideo(
     totalDuration = Math.min(15, calculatedDuration);
   }
 
-  // Determine whether video sound should be muted (defaults to true for music video remixes)
-  const shouldMuteVideoAudio = exportSettings?.muteVideoAudio ?? true;
-
-  onProgress({
-    isRendering: true,
-    percent: 2,
-    progress: 2,
-    currentSecond: 0,
-    totalSeconds: totalDuration,
-    stage: "preparing",
-    status: shouldMuteVideoAudio
-      ? "Rendering studio 48kHz audio track (Camera audio muted)..."
-      : "Mixing audio tracks...",
+  // Delegate everything to the fast local FFmpeg pipeline
+  return renderTimelineWithCloudEngine({
+    project,
+    tracks,
+    mediaItems,
+    captions,
+    totalDuration,
+    exportSettings,
+    abortSignal,
+    onProgress,
   });
 
-  // 2. Pre-render offline studio audio track
-  let audioWavBlob: Blob | null = null;
-  try {
-    audioWavBlob = await renderOfflineAudioMix(
-      tracks,
-      mediaItems,
-      totalDuration,
-      exportSettings?.audioSampleRate || 48000,
-      shouldMuteVideoAudio
-    );
-  } catch (audioErr) {
-    console.warn("Offline audio render notice:", audioErr);
-  }
-
-  onProgress({
-    isRendering: true,
-    percent: 6,
-    progress: 6,
-    currentSecond: 0,
-    totalSeconds: totalDuration,
-    stage: "preparing",
-    status: "Initializing hardware-accelerated video canvas...",
-  });
-
-  // 3. Setup canvas & dimensions
-  const resolution = exportSettings?.resolution || project.resolution || "1080p";
-  const { width, height } = getCanvasDimensions(project.aspectRatio, resolution);
-
-  const canvas = document.createElement("canvas");
-  canvas.width = width;
-  canvas.height = height;
-  const ctx = canvas.getContext("2d", { alpha: false, desynchronized: true });
-  if (!ctx) {
-    throw new Error("Unable to create hardware 2D canvas context for rendering.");
-  }
-
-  // Pre-load all media elements with pre-warming
-  const mediaElementsMap = new Map<string, HTMLVideoElement | HTMLImageElement>();
-  await Promise.all(
-    mediaItems.map(async (item) => {
-      if (item.type === "video") {
-        const v = document.createElement("video");
-        v.src = item.url;
-        if (!item.url.startsWith("blob:") && !item.url.startsWith("data:")) {
-          v.crossOrigin = "anonymous";
-        }
-        v.muted = true;
-        v.playsInline = true;
-        v.preload = "auto";
-
-        const loadPromise = new Promise<void>((resolve) => {
-          let resolved = false;
-          const onReady = () => {
-            if (!resolved) {
-              resolved = true;
-              resolve();
-            }
-          };
-          v.addEventListener("canplay", onReady);
-          v.addEventListener("loadeddata", onReady);
-          v.addEventListener("error", () => {
-            v.removeAttribute("crossorigin");
-            v.src = item.url;
-            onReady();
-          });
-        });
-
-        await Promise.race([loadPromise, new Promise((r) => setTimeout(r, 3000))]);
-        mediaElementsMap.set(item.id, v);
-      } else if (item.type === "image") {
-        const img = new Image();
-        if (!item.url.startsWith("blob:") && !item.url.startsWith("data:")) {
-          img.crossOrigin = "anonymous";
-        }
-        img.src = item.url;
-        const imgPromise = new Promise<void>((resolve) => {
-          img.onload = () => resolve();
-          img.onerror = () => resolve();
-        });
-        await Promise.race([imgPromise, new Promise((r) => setTimeout(r, 2000))]);
-        mediaElementsMap.set(item.id, img);
-      }
-    })
-  );
-
-  // Pre-seek all video elements to their first clip's trimStart position
-  const v1Track = tracks.find((t) => t.type === "V1" && t.visible);
-  if (v1Track) {
-    v1Track.clips.forEach((c) => {
-      const el = mediaElementsMap.get(c.mediaId);
-      if (el instanceof HTMLVideoElement) {
-        try {
-          el.currentTime = Math.max(0, c.trimStart || 0);
-        } catch {}
-      }
-    });
-  }
-
-  // 4. Configure Recorder & Bitrates
-  const fps = exportSettings?.frameRate || project.frameRate || 30;
-  const targetFormat = exportSettings?.format || "mp4";
-  const { mimeType: selectedMimeType, extension: finalExt } = getBestMimeType(targetFormat);
-
-  let targetBitrateMbps = exportSettings?.bitrateMbps || 16;
-  if (exportSettings?.quality === "standard") targetBitrateMbps = 8;
-  else if (exportSettings?.quality === "maximum") targetBitrateMbps = 24;
-  else if (exportSettings?.quality === "prores") targetBitrateMbps = 35;
-  const videoBitsPerSecond = targetBitrateMbps * 1_000_000;
-
-  const canvasStream = canvas.captureStream(fps);
-  const recordedChunks: Blob[] = [];
-
-  let recorder: MediaRecorder;
-  try {
-    recorder = new MediaRecorder(canvasStream, {
-      mimeType: selectedMimeType,
-      videoBitsPerSecond,
-    });
-  } catch (err) {
-    console.warn("MediaRecorder creation with specific type failed, using default:", err);
-    recorder = new MediaRecorder(canvasStream);
-  }
-
-  recorder.ondataavailable = (e) => {
-    if (e.data && e.data.size > 0) {
-      recordedChunks.push(e.data);
-    }
-  };
-
-  recorder.start(100);
-
-  const startTime = performance.now();
-  const v2Track = tracks.find((t) => t.type === "V2" && t.visible);
-  const t1Track = tracks.find((t) => t.type === "T1" && t.visible);
-
-  return new Promise((resolve, reject) => {
-    let isFinished = false;
-    let animationFrameId: number;
-
-    const cleanup = () => {
-      isFinished = true;
-      cancelAnimationFrame(animationFrameId);
-      mediaElementsMap.forEach((el) => {
-        if (el instanceof HTMLVideoElement && !el.paused) {
-          try {
-            el.pause();
-          } catch {}
-        }
-      });
-    };
-
-    if (abortSignal) {
-      abortSignal.addEventListener("abort", () => {
-        cleanup();
-        if (recorder.state !== "inactive") {
-          try {
-            recorder.stop();
-          } catch {}
-        }
-        reject(new Error("Render canceled by user."));
-      });
-    }
-
-    recorder.onerror = (e: any) => {
-      cleanup();
-      console.error("MediaRecorder error:", e);
-      reject(new Error(e.message || "Encoder pipeline error during video recording."));
-    };
-
-    recorder.onstop = async () => {
-      cleanup();
-      const rawVideoBlob = new Blob(recordedChunks, { type: selectedMimeType });
-
-      // Master with server FFmpeg: Combines video stream + studio audio WAV into true H.264 / AAC MP4
-      if (targetFormat === "mp4") {
-        onProgress({
-          isRendering: true,
-          percent: 97,
-          progress: 97,
-          currentSecond: totalDuration,
-          totalSeconds: totalDuration,
-          stage: "encoding",
-          status: shouldMuteVideoAudio
-            ? "Multiplexing H.264 master MP4 (video + soundtrack, camera audio silenced)..."
-            : "Multiplexing broadcast H.264 / AAC MP4...",
-        });
-
-        try {
-          const bitrateParam = `${targetBitrateMbps}M`;
-          const fpsParam = String(fps);
-          const outName = exportSettings?.fileName || `${project.name.replace(/\s+/g, "_")}.mp4`;
-
-          const formData = new FormData();
-          formData.append("video", rawVideoBlob, "sequence_video.webm");
-          if (audioWavBlob && audioWavBlob.size > 100) {
-            formData.append("audio", audioWavBlob, "soundtrack_master.wav");
-          }
-
-          const remuxRes = await fetch(
-            `/api/export/master-mux?fileName=${encodeURIComponent(outName)}&bitrate=${bitrateParam}&fps=${fpsParam}&muteVideoAudio=${shouldMuteVideoAudio ? "true" : "false"}`,
-            {
-              method: "POST",
-              body: formData,
-              signal: abortSignal,
-            }
-          );
-
-          if (remuxRes.ok) {
-            const mp4Blob = await remuxRes.blob();
-            const mp4Url = URL.createObjectURL(mp4Blob);
-
-            onProgress({
-              isRendering: false,
-              percent: 100,
-              progress: 100,
-              currentSecond: totalDuration,
-              totalSeconds: totalDuration,
-              stage: "done",
-              status: "Render Complete! Master H.264 MP4 ready with music soundtrack.",
-              downloadUrl: mp4Url,
-              fileSize: mp4Blob.size,
-              format: "MP4",
-            });
-
-            resolve({
-              blob: mp4Blob,
-              url: mp4Url,
-              mimeType: "video/mp4",
-              extension: "mp4",
-            });
-            return;
-          }
-        } catch (remuxErr) {
-          console.warn("FFmpeg master-mux fallback:", remuxErr);
-        }
-      }
-
-      // Fallback
-      const finalUrl = URL.createObjectURL(rawVideoBlob);
-      onProgress({
-        isRendering: false,
-        percent: 100,
-        progress: 100,
-        currentSecond: totalDuration,
-        totalSeconds: totalDuration,
-        stage: "done",
-        status: "Render Complete! Video file ready.",
-        downloadUrl: finalUrl,
-        fileSize: rawVideoBlob.size,
-        format: finalExt.toUpperCase(),
-      });
-
-      resolve({
-        blob: rawVideoBlob,
-        url: finalUrl,
-        mimeType: selectedMimeType,
-        extension: finalExt,
-      });
-    };
-
-    let hasRenderedAnyVideoFrame = false;
-
-    const renderLoop = () => {
-      if (isFinished) return;
-
-      const elapsed = (performance.now() - startTime) / 1000;
-      const currentTime = Math.min(elapsed, totalDuration);
-
-      if (elapsed >= totalDuration) {
-        onProgress({
-          isRendering: true,
-          percent: 96,
-          progress: 96,
-          currentSecond: totalDuration,
-          totalSeconds: totalDuration,
-          stage: "encoding",
-          status: "Finalizing master video stream...",
-        });
-
-        if (recorder.state === "recording") {
-          recorder.stop();
-        }
-        return;
-      }
-
-      // 1. Clear background only on start or if no clips exist
-      if (!hasRenderedAnyVideoFrame || !v1Track?.clips.length) {
-        ctx.fillStyle = "#000000";
-        ctx.fillRect(0, 0, width, height);
-      }
-
-      // 2. Render V1 Clip (Main video / image) with micro-gap tolerance
-      if (v1Track) {
-        let activeClip = v1Track.clips.find(
-          (c) => currentTime >= c.startTime && currentTime < c.startTime + c.duration
-        );
-        if (!activeClip && v1Track.clips.length > 0) {
-          activeClip = v1Track.clips.find(
-            (c) => currentTime >= c.startTime - 0.08 && currentTime <= c.startTime + c.duration + 0.08
-          );
-        }
-
-        if (activeClip) {
-          hasRenderedAnyVideoFrame = true;
-          drawClipToCanvas(
-            ctx,
-            activeClip,
-            currentTime,
-            mediaItems,
-            mediaElementsMap,
-            width,
-            height
-          );
-
-          // Pre-seek next clip 0.8s ahead to eliminate seek latency on cut transitions
-          const remainingInClip = activeClip.startTime + activeClip.duration - currentTime;
-          if (remainingInClip <= 0.8) {
-            const currentIdx = v1Track.clips.indexOf(activeClip);
-            const nextClip = v1Track.clips[currentIdx + 1];
-            if (nextClip) {
-              const nextEl = mediaElementsMap.get(nextClip.mediaId);
-              if (nextEl instanceof HTMLVideoElement && Math.abs(nextEl.currentTime - (nextClip.trimStart || 0)) > 0.5) {
-                try {
-                  nextEl.currentTime = Math.max(0, nextClip.trimStart || 0);
-                } catch {}
-              }
-            }
-          }
-        }
-      }
-
-      // 3. Render V2 Clip (Overlay / B-roll)
-      if (v2Track) {
-        const activeOverlay = v2Track.clips.find(
-          (c) => currentTime >= c.startTime && currentTime <= c.startTime + c.duration
-        );
-        if (activeOverlay) {
-          ctx.save();
-          ctx.globalAlpha = activeOverlay.volume ?? 1;
-          drawClipToCanvas(
-            ctx,
-            activeOverlay,
-            currentTime,
-            mediaItems,
-            mediaElementsMap,
-            width,
-            height
-          );
-          ctx.restore();
-        }
-      }
-
-      // 4. Render T1 Text overlays
-      if (t1Track) {
-        const activeTextClip = t1Track.clips.find(
-          (c) => currentTime >= c.startTime && currentTime <= c.startTime + c.duration
-        );
-        if (activeTextClip && activeTextClip.text) {
-          drawTextToCanvas(ctx, activeTextClip, width, height);
-        }
-      }
-
-      // 5. Render Subtitles / Captions
-      const activeCaption = captions.find(
-        (cap) => currentTime >= cap.startTime && currentTime <= cap.endTime
-      );
-      if (activeCaption) {
-        drawCaptionToCanvas(ctx, activeCaption, width, height);
-      }
-
-      // Progress reporting
-      const pct = Math.min(94, Math.max(6, Math.round((currentTime / totalDuration) * 88) + 6));
-      onProgress({
-        isRendering: true,
-        percent: pct,
-        progress: pct,
-        currentSecond: Math.round(currentTime * 10) / 10,
-        totalSeconds: Math.round(totalDuration * 10) / 10,
-        stage: "rendering",
-        status: `Rendering frame at ${formatSeconds(currentTime)} / ${formatSeconds(totalDuration)} (${pct}%)...`,
-      });
-
-      animationFrameId = requestAnimationFrame(renderLoop);
-    };
-
-    animationFrameId = requestAnimationFrame(renderLoop);
-  });
 }
 
 function formatSeconds(sec: number): string {
@@ -970,7 +571,7 @@ function drawClipToCanvas(
 
   // Transitions
   if (clip.transitionIn && clip.transitionIn !== "None") {
-    const transDuration = 0.5;
+    const transDuration = Math.max(0.1, clip.transitionDuration ?? 0.5);
     const transProgress = (currentTime - clip.startTime) / transDuration;
     if (transProgress >= 0 && transProgress < 1) {
       applyTransitionEffect(ctx, clip.transitionIn, transProgress, width, height);

@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useState } from "react";
 import {
   Sparkles,
   Sliders,
@@ -10,17 +10,23 @@ import {
   Thermometer,
   CircleDot,
   Check,
-  Zap,
   Scissors,
   UserCheck,
   Volume2,
   ChevronLeft,
+  RotateCcw,
+  Focus,
+  Trash2,
 } from "lucide-react";
 import { TimelineClip } from "../types";
 
 interface EffectsAndAdjustPanelProps {
   type: "transitions" | "effects" | "adjust" | "ai_tools";
   selectedClip: TimelineClip | null;
+  canApplyTransition?: boolean;
+  hasTransitionAtBoundary?: boolean;
+  onApplyTransitionAtBoundary?: (transition: NonNullable<TimelineClip["transitionIn"]>, duration: number) => void;
+  onChangeBoundaryTransitionDuration?: (duration: number) => void;
   onUpdateSelectedClip: (updates: Partial<TimelineClip>) => void;
   onApplyPresetToAll: (lut: string) => void;
   onRunSilenceCut: () => void;
@@ -32,6 +38,10 @@ interface EffectsAndAdjustPanelProps {
 export const EffectsAndAdjustPanel: React.FC<EffectsAndAdjustPanelProps> = ({
   type,
   selectedClip,
+  canApplyTransition = false,
+  hasTransitionAtBoundary = false,
+  onApplyTransitionAtBoundary,
+  onChangeBoundaryTransitionDuration,
   onUpdateSelectedClip,
   onApplyPresetToAll,
   onRunSilenceCut,
@@ -39,15 +49,31 @@ export const EffectsAndAdjustPanel: React.FC<EffectsAndAdjustPanelProps> = ({
   onRunAudioNormalize,
   onBackToStudio,
 }) => {
+  const [defaultTransitionDuration, setDefaultTransitionDuration] = useState(0.5);
+  const [lutScope, setLutScope] = useState<'clip'|'all'>('clip');
   const transitionsList = [
-    { id: "None", name: "Cut (None)", desc: "Standard instantaneous jump" },
-    { id: "Crossfade", name: "Crossfade (Dissolve)", desc: "Smooth gradual blend between scenes" },
-    { id: "Dip to Black", name: "Dip to Black", desc: "Fade to black then fade in, cinematic pause" },
-    { id: "Zoom In", name: "Dynamic Zoom In", desc: "Punch-in camera motion into next scene" },
-    { id: "Slide", name: "Whip Slide", desc: "Horizontal rapid wipe" },
-    { id: "Wipe", name: "Geometric Wipe", desc: "Linear reveal wipe" },
-    { id: "Glitch", name: "Digital Glitch", desc: "Cyber chromatic aberration glitch" },
-  ];
+    { id: "None", name: "Hard Cut", desc: "Instant edit", color: "#a1a1aa", mark: "CUT" },
+    { id: "Crossfade", name: "Cross Dissolve", desc: "Blend between shots", color: "#22d3ee", mark: "A+B" },
+    { id: "Dip to Black", name: "Dip to Black", desc: "Fade through black", color: "#71717a", mark: "BLACK" },
+    { id: "Zoom In", name: "Push In", desc: "Scale into the next shot", color: "#fbbf24", mark: "ZOOM" },
+    { id: "Slide", name: "Slide", desc: "Directional frame movement", color: "#34d399", mark: "MOVE" },
+    { id: "Wipe", name: "Wipe", desc: "Clean edge reveal", color: "#60a5fa", mark: "WIPE" },
+    { id: "Glitch", name: "Digital Glitch", desc: "Brief signal breakup", color: "#fb7185", mark: "RGB" },
+  ] as const;
+  const transitionDuration = selectedClip?.transitionDuration ?? defaultTransitionDuration;
+
+  const updateTransitionDuration = (duration: number) => {
+    if (canApplyTransition && (selectedClip?.transitionIn || selectedClip?.transitionOut)) {
+      onChangeBoundaryTransitionDuration?.(duration);
+    } else {
+      setDefaultTransitionDuration(duration);
+    }
+  };
+
+  const applyTransition = (transition: typeof transitionsList[number]["id"]) => {
+    if (!canApplyTransition) return;
+    onApplyTransitionAtBoundary?.(transition, transitionDuration);
+  };
 
   const colorLuts = [
     { id: "natural", name: "Natural Film", desc: "Balanced skin tones and true whites", b: 1, c: 1.05, s: 1.05, temp: 0, v: 0 },
@@ -64,6 +90,7 @@ export const EffectsAndAdjustPanel: React.FC<EffectsAndAdjustPanelProps> = ({
     saturation: 1,
     temperature: 0,
     vignette: 0,
+    sharpen: 0,
   };
 
   const handleSliderChange = (key: keyof typeof filter, value: number) => {
@@ -77,7 +104,7 @@ export const EffectsAndAdjustPanel: React.FC<EffectsAndAdjustPanelProps> = ({
   };
 
   return (
-    <div className="flex flex-col h-full bg-zinc-900/60 border-r border-zinc-800/80 w-full md:w-80 lg:w-96 select-none shrink-0 overflow-hidden">
+    <div className="flex flex-col h-full min-h-0 bg-zinc-900/60 border-r border-zinc-800/80 w-full md:w-80 lg:w-96 select-none overflow-hidden">
       {/* Header */}
       <div className="p-2.5 sm:p-3 border-b border-zinc-800 flex items-center justify-between">
         <div className="flex items-center gap-2">
@@ -113,67 +140,119 @@ export const EffectsAndAdjustPanel: React.FC<EffectsAndAdjustPanelProps> = ({
         </div>
       </div>
 
-      <div className="flex-1 overflow-y-auto p-3 space-y-4">
+      <div className="flex-1 min-h-0 overflow-y-auto p-3 space-y-4">
         {/* TRANSITIONS PANEL */}
         {type === "transitions" && (
-          <div className="space-y-2">
-            <p className="text-[11px] text-zinc-400">
-              {selectedClip
-                ? `Assign transition to selected clip (${selectedClip.label || "Clip"}):`
-                : "Select a clip on the timeline to set transitions, or click below to set default:"}
-            </p>
+          <div className="space-y-4">
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <h3 className="text-sm font-semibold text-zinc-100">Cut transition</h3>
+                <p className="text-[11px] text-zinc-500 mt-1 truncate">
+                  {canApplyTransition ? `Between clips at ${selectedClip?.label || "selected edit"}` : "Select a split clip beside an adjoining clip"}
+                </p>
+              </div>
+              <Layers className="w-4 h-4 text-cyan-300 shrink-0 mt-0.5" />
+            </div>
 
-            <div className="space-y-2">
-              {transitionsList.map((tr) => {
-                const isSelected = selectedClip?.transitionIn === tr.id;
+            <div className="space-y-2 rounded-md border border-zinc-800 bg-zinc-950/80 p-3">
+              <div className="flex items-center justify-between">
+                <label htmlFor="transition-duration" className="text-[11px] font-medium text-zinc-300">Duration</label>
+                <div className="flex items-center gap-1">
+                  <input
+                    id="transition-duration"
+                    type="number"
+                    min="0.1"
+                    max="2"
+                    step="0.05"
+                    value={transitionDuration.toFixed(2)}
+                    disabled={!canApplyTransition}
+                    onChange={(event) => updateTransitionDuration(Math.max(0.1, Math.min(2, Number(event.target.value))))}
+                    className="w-14 rounded border border-zinc-700 bg-zinc-900 px-1.5 py-1 text-right font-mono text-xs text-cyan-200 outline-none focus:border-cyan-400 disabled:opacity-40"
+                  />
+                  <span className="text-[10px] text-zinc-500">sec</span>
+                </div>
+              </div>
+              <input
+                type="range"
+                min="0.1"
+                max="2"
+                step="0.05"
+                value={transitionDuration}
+                disabled={!canApplyTransition}
+                aria-label="Transition duration"
+                onChange={(event) => updateTransitionDuration(Number(event.target.value))}
+                className="w-full accent-cyan-400 disabled:opacity-40"
+              />
+              <div className="flex justify-between text-[9px] font-mono text-zinc-600"><span>0.1s</span><span>1.0s</span><span>2.0s</span></div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-2">
+              {transitionsList.map((transition) => {
+                const isSelected = selectedClip?.transitionIn === transition.id || selectedClip?.transitionOut === transition.id;
                 return (
                   <button
-                    key={tr.id}
-                    onClick={() => {
-                      if (selectedClip) {
-                        onUpdateSelectedClip({ transitionIn: tr.id as any, transitionOut: tr.id as any });
-                      }
+                    key={transition.id}
+                    type="button"
+                    draggable
+                    onClick={() => applyTransition(transition.id)}
+                    onDragStart={(event) => {
+                      event.dataTransfer.effectAllowed = "copy";
+                      event.dataTransfer.setData("application/x-autocut-transition", JSON.stringify({
+                        transition: transition.id,
+                        duration: transitionDuration,
+                      }));
                     }}
-                    className={`w-full p-2.5 rounded-xl border text-left flex items-center justify-between transition ${
-                      isSelected
-                        ? "bg-zinc-800 border-indigo-500 text-indigo-200"
-                        : "bg-zinc-950/80 border-zinc-800 hover:border-zinc-700 text-zinc-300"
-                    }`}
+                    aria-pressed={isSelected}
+                    title={canApplyTransition ? `Click to apply or drag ${transition.name} to another cut` : `Drag ${transition.name} onto a cut`}
+                    className={`min-h-[76px] cursor-grab rounded-md border p-2 text-left transition active:cursor-grabbing ${isSelected ? "border-cyan-400/70 bg-cyan-950/40 ring-1 ring-cyan-400/20" : "border-zinc-800 bg-zinc-950/70 hover:border-zinc-600"}`}
                   >
-                    <div>
-                      <h4 className="text-xs font-bold">{tr.name}</h4>
-                      <p className="text-[10px] text-zinc-500">{tr.desc}</p>
+                    <div className="mb-2 flex items-center justify-between">
+                      <span className="flex h-6 min-w-8 items-center justify-center rounded-sm bg-zinc-900 px-1 font-mono text-[9px] font-bold" style={{ color: transition.color }}>{transition.mark}</span>
+                      {isSelected && <Check className="h-3.5 w-3.5 text-cyan-300" />}
                     </div>
-                    {isSelected && <Check className="w-4 h-4 text-indigo-400" />}
+                    <span className="block text-[11px] font-semibold text-zinc-200">{transition.name}</span>
+                    <span className="mt-0.5 block text-[9px] text-zinc-500">{transition.desc}</span>
                   </button>
                 );
               })}
             </div>
+            <button
+              type="button"
+              disabled={!canApplyTransition || !hasTransitionAtBoundary}
+              onClick={() => applyTransition("None")}
+              className="flex min-h-9 w-full items-center justify-center gap-2 rounded-md border border-rose-900/70 bg-rose-950/30 px-3 text-[11px] font-semibold text-rose-200 transition hover:border-rose-700 hover:bg-rose-950/60 disabled:cursor-not-allowed disabled:opacity-40"
+              title="Remove the transition from this cut"
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+              Remove transition
+            </button>
+            {!canApplyTransition && <p className="text-[10px] text-zinc-500">Transitions apply only across an adjoining edit. Split a clip, then select either side of the cut.</p>}
           </div>
         )}
 
         {/* EFFECTS & LUTS PANEL */}
         {type === "effects" && (
           <div className="space-y-3">
-            <p className="text-[11px] text-zinc-400">
-              Select a cinematic color grade to apply to the active clip or entire project:
-            </p>
+            <div className="flex items-center justify-between">
+              <p className="text-[11px] text-zinc-400">Select a cinematic color grade LUT:</p>
+              <div className="flex rounded-lg overflow-hidden border border-zinc-700 text-[10px] font-bold">
+                {(['clip','all'] as const).map(s => (
+                  <button key={s} onClick={() => setLutScope(s)}
+                    className={`px-2.5 py-1 transition ${lutScope===s ? 'bg-amber-500 text-zinc-950' : 'bg-zinc-900 text-zinc-400 hover:text-white'}`}>
+                    {s === 'clip' ? 'Clip' : 'Project'}
+                  </button>
+                ))}
+              </div>
+            </div>
 
             <div className="grid grid-cols-2 gap-2">
               {colorLuts.map((lut) => (
                 <button
                   key={lut.id}
                   onClick={() => {
-                    if (selectedClip) {
+                    if (selectedClip && lutScope === 'clip') {
                       onUpdateSelectedClip({
-                        filter: {
-                          brightness: lut.b,
-                          contrast: lut.c,
-                          saturation: lut.s,
-                          temperature: lut.temp,
-                          vignette: lut.v,
-                          lut: lut.id,
-                        },
+                        filter: { brightness: lut.b, contrast: lut.c, saturation: lut.s, temperature: lut.temp, vignette: lut.v, lut: lut.id },
                       });
                     } else {
                       onApplyPresetToAll(lut.id);
@@ -315,16 +394,46 @@ export const EffectsAndAdjustPanel: React.FC<EffectsAndAdjustPanelProps> = ({
                   />
                 </div>
 
+                {/* Temperature */}
+                <div className="space-y-1.5">
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="text-zinc-300 flex items-center gap-1.5 font-medium">
+                      <Thermometer className="w-3.5 h-3.5 text-sky-400" /> Temperature
+                    </span>
+                    <span className="font-mono text-zinc-400 text-[11px]">{filter.temperature > 0 ? '+' : ''}{filter.temperature}K</span>
+                  </div>
+                  <input type="range" min="-50" max="50" step="1"
+                    value={filter.temperature}
+                    onChange={e => handleSliderChange("temperature", parseFloat(e.target.value))}
+                    className="w-full accent-sky-400 cursor-pointer"
+                  />
+                </div>
+
+                {/* Sharpen */}
+                <div className="space-y-1.5">
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="text-zinc-300 flex items-center gap-1.5 font-medium">
+                      <Focus className="w-3.5 h-3.5 text-emerald-400" /> Sharpen
+                    </span>
+                    <span className="font-mono text-zinc-400 text-[11px]">{Math.round((filter.sharpen||0)*100)}%</span>
+                  </div>
+                  <input type="range" min="0" max="1" step="0.05"
+                    value={filter.sharpen||0}
+                    onChange={e => handleSliderChange("sharpen", parseFloat(e.target.value))}
+                    className="w-full accent-emerald-400 cursor-pointer"
+                  />
+                </div>
+
                 {/* Reset Button */}
                 <button
                   onClick={() =>
                     onUpdateSelectedClip({
-                      filter: { brightness: 1, contrast: 1, saturation: 1, temperature: 0, vignette: 0 },
+                      filter: { brightness: 1, contrast: 1, saturation: 1, temperature: 0, vignette: 0, sharpen: 0 },
                     })
                   }
-                  className="w-full py-1.5 text-xs text-zinc-400 hover:text-white bg-zinc-950 border border-zinc-800 rounded-lg transition"
+                  className="w-full py-1.5 text-xs text-zinc-400 hover:text-white bg-zinc-950 border border-zinc-800 rounded-lg transition flex items-center justify-center gap-1.5"
                 >
-                  Reset Color Adjustments
+                  <RotateCcw className="w-3 h-3" /> Reset All Adjustments
                 </button>
               </>
             )}

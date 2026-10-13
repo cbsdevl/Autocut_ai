@@ -172,6 +172,11 @@ async function renderOfflineAudioMix(
 
       const clipStart = Math.max(0, clip.startTime);
       const clipOffset = Math.max(0, clip.trimStart || 0);
+      const clipEndTrim = Math.max(0, clip.trimEnd || 0);
+      const clipDuration = Math.max(
+        0.1,
+        Math.min(clip.duration, Math.max(0, buffer.duration - clipOffset - clipEndTrim))
+      );
 
       if (clipStart < totalDuration) {
         if (clip.duration > buffer.duration) {
@@ -180,7 +185,7 @@ async function renderOfflineAudioMix(
         source.start(
           clipStart,
           clipOffset,
-          Math.min(clip.duration, totalDuration - clipStart)
+          Math.min(clipDuration, totalDuration - clipStart)
         );
       }
     } catch (schedErr) {
@@ -193,7 +198,8 @@ async function renderOfflineAudioMix(
 }
 
 /**
- * Uploads a large file in 4MB chunks to bypass Cloud Run 32MB payload limit.
+ * Uploads a large file in 8MB chunks via multipart/form-data.
+ * Server receives via multer.single('chunk') — avoids body-parsing conflicts.
  */
 async function uploadMediaInChunks(
   mediaId: string,
@@ -202,7 +208,7 @@ async function uploadMediaInChunks(
   signal?: AbortSignal,
   onChunkProgress?: (percent: number) => void
 ): Promise<void> {
-  const CHUNK_SIZE = 4 * 1024 * 1024; // 4MB chunks
+  const CHUNK_SIZE = 8 * 1024 * 1024; // 8MB chunks — fast & well under 50MB limit
   const totalChunks = Math.ceil(blobOrFile.size / CHUNK_SIZE);
 
   for (let chunkIdx = 0; chunkIdx < totalChunks; chunkIdx++) {
@@ -210,7 +216,7 @@ async function uploadMediaInChunks(
 
     const start = chunkIdx * CHUNK_SIZE;
     const end = Math.min(blobOrFile.size, start + CHUNK_SIZE);
-    const chunk = blobOrFile.slice(start, end);
+    const chunkBlob = blobOrFile.slice(start, end);
 
     const query = new URLSearchParams({
       mediaId,
@@ -219,14 +225,20 @@ async function uploadMediaInChunks(
       fileName,
     });
 
+    // Send as multipart/form-data with field name "chunk" — matches multer.single("chunk")
+    const formData = new FormData();
+    formData.append("chunk", chunkBlob, fileName);
+
     const res = await fetch(`/api/media/chunk-upload?${query.toString()}`, {
       method: "POST",
-      body: chunk,
+      body: formData,
       signal,
     });
 
     if (!res.ok) {
-      throw new Error(`Chunk upload failed with status ${res.status}`);
+      let detail = "";
+      try { detail = (await res.json()).error || ""; } catch {}
+      throw new Error(`Chunk upload failed with status ${res.status}${detail ? ": " + detail : ""}`);
     }
 
     if (onChunkProgress) {
@@ -249,6 +261,10 @@ export async function renderTimelineWithCloudEngine(
   options: RenderTimelineOptions
 ): Promise<{ blob: Blob; url: string; mimeType: string; extension: string }> {
   const { project, tracks, mediaItems, exportSettings, abortSignal, onProgress } = options;
+
+  // Always re-upload assets for each render — server tmpdir is cleared on restart,
+  // so cached IDs from a previous render would silently point to missing files.
+  uploadedAssetSet.clear();
 
   // 1. Calculate full timeline duration
   let calculatedDuration = 0;
@@ -362,7 +378,8 @@ export async function renderTimelineWithCloudEngine(
     await uploadMediaInChunks("audio_soundtrack", "soundtrack.wav", audioWavBlob, abortSignal);
   }
 
-  // 5. Send lightweight JSON timeline manifest (2 KB)
+  // 5. Kick off FFmpeg encode on server — estimate progress while waiting
+  //    (FFmpeg at ultrafast preset typically encodes ~3–8x real-time on modern CPUs)
   onProgress({
     isRendering: true,
     percent: 65,
@@ -370,7 +387,7 @@ export async function renderTimelineWithCloudEngine(
     currentSecond: 0,
     totalSeconds: totalDuration,
     stage: "encoding",
-    status: `Encoding broadcast master H.264 (${totalDuration}s exact timeline duration)...`,
+    status: `Starting FFmpeg encoder (${totalDuration.toFixed(1)}s timeline)...`,
   });
 
   const cutsPayload = primaryTrack.clips.map((c) => {
@@ -381,11 +398,15 @@ export async function renderTimelineWithCloudEngine(
     return {
       mediaId: c.mediaId,
       url: item?.url,
+      startTime: c.startTime,
       trimStart: c.trimStart || 0,
       duration: c.duration,
       speed: c.speed || 1,
       flipHorizontal: Boolean(c.flipHorizontal),
       filter: c.filter,
+      transitionIn: c.transitionIn,
+      transitionOut: c.transitionOut,
+      transitionDuration: c.transitionDuration ?? 0.5,
     };
   });
 
@@ -397,20 +418,56 @@ export async function renderTimelineWithCloudEngine(
     totalDuration,
     fileName,
     cuts: cutsPayload,
+    overlays: tracks.find((track) => track.type === "T1" && track.visible)?.clips
+      .filter((clip) => Boolean(clip.text?.trim()))
+      .map((clip) => ({
+        text: clip.text,
+        startTime: clip.startTime,
+        duration: clip.duration,
+        style: clip.textStyle || {},
+      })) || [],
     audioTrack: audioWavBlob ? { mediaId: "audio_soundtrack", trimStart: 0 } : undefined,
     muteVideoAudio: shouldMuteVideoAudio,
   };
 
-  const renderRes = await fetch("/api/export/render-timeline-json", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(manifestPayload),
-    signal: abortSignal,
-  });
+  // Animated progress ticker — runs concurrently with the server FFmpeg encode.
+  // Increments from 66% → 90% over the estimated encode time so the UI stays alive.
+  let tickerPercent = 66;
+  const estimatedEncodeMs = totalDuration * 400; // ~2.5x real-time estimate at ultrafast
+  const tickIntervalMs = 800;
+  const tickStep = (90 - 66) / (estimatedEncodeMs / tickIntervalMs);
+  let tickerStopped = false;
+  const tickerInterval = setInterval(() => {
+    if (tickerStopped) return;
+    tickerPercent = Math.min(90, tickerPercent + tickStep);
+    const elapsed = Math.min(totalDuration, (tickerPercent - 65) / (90 - 65) * totalDuration);
+    onProgress({
+      isRendering: true,
+      percent: Math.round(tickerPercent),
+      progress: Math.round(tickerPercent),
+      currentSecond: Math.round(elapsed * 10) / 10,
+      totalSeconds: totalDuration,
+      stage: "encoding",
+      status: `FFmpeg encoding segments... ${Math.round(tickerPercent)}% (${cutsPayload.length} clip${cutsPayload.length !== 1 ? "s" : ""})`,
+    });
+  }, tickIntervalMs);
 
-  if (!renderRes.ok) {
-    const errText = await renderRes.text();
-    throw new Error(`Cloud FFmpeg render error (${renderRes.status}): ${errText}`);
+  let renderRes: Response;
+  try {
+    renderRes = await fetch("/api/export/render-timeline-json", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(manifestPayload),
+      signal: abortSignal,
+    });
+  } finally {
+    tickerStopped = true;
+    clearInterval(tickerInterval);
+  }
+
+  if (!renderRes!.ok) {
+    const errText = await renderRes!.text();
+    throw new Error(`Cloud FFmpeg render error (${renderRes!.status}): ${errText}`);
   }
 
   onProgress({

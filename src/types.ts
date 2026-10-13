@@ -1,3 +1,52 @@
+// ─────────────────────────────────────────────────────────────
+// Auth & Subscription Types
+// ─────────────────────────────────────────────────────────────
+
+export type UserRole = "user" | "admin";
+export type PlanSlug = "free" | "weekly" | "monthly";
+
+export interface User {
+  id: number;
+  name: string;
+  email: string;
+  role: UserRole;
+  created_at: string;
+}
+
+export interface PricingPlan {
+  id: number;
+  name: string;
+  slug: PlanSlug;
+  price: number;
+  currency: string;
+  duration_days: number;
+  ai_video_limit: number;
+  is_active: boolean;
+  description: string;
+}
+
+export interface UserSubscription {
+  id: number;
+  user_id: number;
+  plan_id: number;
+  started_at: string;
+  expires_at: string | null;
+  ai_videos_used: number;
+  is_active: boolean;
+}
+
+export interface AuthUser extends User {
+  plan_slug: PlanSlug;
+  plan_name: string;
+  plan_price: number;
+  plan_currency: string;
+  ai_video_limit: number;
+  ai_videos_used: number;
+  expires_at: string | null;
+}
+
+// ─────────────────────────────────────────────────────────────
+
 export type AspectRatio = "16:9" | "9:16" | "1:1" | "custom";
 export type Resolution = "1080p" | "1440p" | "4K";
 export type FrameRate = 24 | 25 | 30 | 50 | 60;
@@ -27,6 +76,7 @@ export interface MediaItem {
   url: string; // Object URL or static URL
   blobUrl?: string;
   file?: File;
+  sourcePath?: string; // Original storage/file path when one was provided by the app or DB
   duration: number; // in seconds
   width: number;
   height: number;
@@ -55,6 +105,15 @@ export interface TextStyle {
   backgroundColor?: string;
   positionY: number; // %
   positionX: number; // %
+  bold?: boolean;
+  italic?: boolean;
+  align?: "left" | "center" | "right";
+  outlineColor?: string;
+  outlineWidth?: number;
+  shadow?: boolean;
+  boxRadius?: number;
+  animation?: "none" | "fade" | "rise" | "pop" | "slide" | "reveal";
+  animationDuration?: number;
 }
 
 export interface TimelineClip {
@@ -75,6 +134,7 @@ export interface TimelineClip {
   flipHorizontal?: boolean; // Mirroring to evade perceptual hash
   transitionIn?: "None" | "Crossfade" | "Dip to Black" | "Zoom In" | "Slide" | "Wipe" | "Glitch";
   transitionOut?: "None" | "Crossfade" | "Dip to Black" | "Zoom In" | "Slide" | "Wipe" | "Glitch";
+  transitionDuration?: number; // Transition length in seconds
   filter?: {
     brightness: number; // 0.5 to 1.5, default 1
     contrast: number; // 0.5 to 1.5, default 1
@@ -221,4 +281,5 @@ export interface AutoEditOptions {
   addMusic: boolean;
   autoCaptions: boolean;
   transitionType?: "Cut" | "Crossfade" | "Dip to Black" | "Zoom In" | "Glitch" | "Slide";
+  sourceTrims?: Record<string, { start: number; end: number }>;
 }

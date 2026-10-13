@@ -23,6 +23,7 @@ import {
   Flame,
   CheckCircle2,
   Upload,
+  Play,
 } from "lucide-react";
 import { EDITING_PRESETS } from "../data/presets";
 import { AutoEditOptions, EditingPreset, MediaItem } from "../types";
@@ -63,6 +64,9 @@ export const AIAutoEditModal: React.FC<AIAutoEditModalProps> = ({
 
   // Selected Style Preset
   const [selectedPresetId, setSelectedPresetId] = useState<string>("music_video");
+  const [sourceTrims, setSourceTrims] = useState<Record<string, { start: number; end: number }>>({});
+  const [previewSourceId, setPreviewSourceId] = useState<string | null>(null);
+  const trimPreviewRef = React.useRef<HTMLVideoElement | null>(null);
 
   // Audio Selection & Duration Matching
   const [selectedAudioId, setSelectedAudioId] = useState<string>(() => {
@@ -82,6 +86,33 @@ export const AIAutoEditModal: React.FC<AIAutoEditModalProps> = ({
   const [danceBeatAlignment, setDanceBeatAlignment] = useState<boolean>(true);
   const [beatAnalysis, setBeatAnalysis] = useState<BeatAnalysisResult | null>(null);
   const [isAnalyzingAudio, setIsAnalyzingAudio] = useState<boolean>(false);
+
+  useEffect(() => {
+    setSourceTrims((previous) => {
+      let changed = false;
+      const next = { ...previous };
+      videoItems.forEach((video) => {
+        const duration = Math.max(0.5, video.duration || 0.5);
+        const trim = previous[video.id] || { start: 0, end: 0 };
+        const start = Math.max(0, Math.min(trim.start, duration - 0.5));
+        const end = Math.max(0, Math.min(trim.end, duration - start - 0.5));
+        if (!previous[video.id] || start !== trim.start || end !== trim.end) {
+          next[video.id] = { start, end };
+          changed = true;
+        }
+      });
+      return changed ? next : previous;
+    });
+  }, [videoItems]);
+
+  useEffect(() => {
+    const preview = trimPreviewRef.current;
+    const trim = previewSourceId ? sourceTrims[previewSourceId] : null;
+    if (preview && trim && preview.readyState >= 1) {
+      preview.pause();
+      preview.currentTime = trim.start;
+    }
+  }, [previewSourceId, sourceTrims]);
 
   // YouTube Anti-Copyright Transformative Shield
   const [antiCopyrightShield, setAntiCopyrightShield] = useState<boolean>(true);
@@ -168,27 +199,24 @@ export const AIAutoEditModal: React.FC<AIAutoEditModalProps> = ({
       addMusic: Boolean(activeAudio),
       autoCaptions: false,
       transitionType: "Cut",
+      sourceTrims,
     });
   };
 
   return (
     <div className="fixed inset-0 bg-black/85 backdrop-blur-md z-50 flex items-center justify-center p-3 md:p-6 select-none font-sans">
-      <div className="bg-[#111215] border border-zinc-800 rounded-2xl max-w-3xl w-full max-h-[92vh] flex flex-col overflow-hidden shadow-2xl text-zinc-100">
+      <div className="bg-zinc-950 border border-zinc-800 rounded-lg max-w-3xl w-full max-h-[92vh] flex flex-col overflow-hidden shadow-xl shadow-black/50 text-zinc-100">
         
         {/* Header */}
-        <div className="p-4 border-b border-zinc-800 bg-[#16171b] flex items-center justify-between shrink-0">
+        <div className="p-4 border-b border-zinc-800 bg-zinc-950 flex items-center justify-between shrink-0">
           <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 rounded-lg bg-gradient-to-tr from-amber-500 via-rose-500 to-indigo-600 p-[1.5px] flex items-center justify-center shadow">
-              <div className="w-full h-full bg-zinc-950 rounded-[7px] flex items-center justify-center">
-                <Disc3 className="w-4 h-4 text-amber-400 animate-spin" style={{ animationDuration: "6s" }} />
-              </div>
-            </div>
+            <Disc3 className="w-5 h-5 text-zinc-400 shrink-0" />
             <div>
               <div className="flex items-center gap-2">
                 <h2 className="text-sm font-black text-zinc-100 uppercase tracking-wide">
                   Music Video Auto Cut & Remix Engine
                 </h2>
-                <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-emerald-950/80 text-emerald-400 border border-emerald-800/60 font-semibold">
+                <span className="text-[10px] font-mono text-zinc-500 font-medium">
                   Multi-Source Mashup
                 </span>
               </div>
@@ -285,6 +313,115 @@ export const AIAutoEditModal: React.FC<AIAutoEditModalProps> = ({
               </div>
             )}
 
+            {/* OPTIONAL SOURCE IN / OUT TRIM */}
+            <section className="space-y-2.5">
+              <div className="flex items-end justify-between gap-3">
+                <div>
+                  <h3 className="text-xs font-semibold text-zinc-200">Trim source videos</h3>
+                  <p className="mt-0.5 text-[10px] text-zinc-500">Exclude unwanted intros, outros, or sections before Auto Cut.</p>
+                </div>
+                <span className="text-[10px] text-zinc-500">Optional</span>
+              </div>
+
+              <div className="space-y-2">
+                {videoItems.map((video) => {
+                  const duration = Math.max(0.5, video.duration || 0.5);
+                  const trim = sourceTrims[video.id] || { start: 0, end: 0 };
+                  const maxTrimEnd = Math.max(0, duration - trim.start - 0.5);
+                  const usableDuration = Math.max(0.5, duration - trim.start - trim.end);
+                  return (
+                    <div key={video.id} className="grid grid-cols-[44px_minmax(0,1fr)] gap-x-3 gap-y-2 border-b border-zinc-800/80 py-2.5 last:border-0">
+                      {video.thumbnail ? (
+                        <img src={video.thumbnail} alt="" className="h-8 w-11 rounded-sm object-cover bg-zinc-900" />
+                      ) : (
+                        <div className="h-8 w-11 rounded-sm bg-zinc-900 flex items-center justify-center text-zinc-600"><Film className="h-4 w-4" /></div>
+                      )}
+                      <div className="flex min-w-0 items-center justify-between gap-2">
+                        <span className="truncate text-[11px] font-medium text-zinc-300">{video.name}</span>
+                        <div className="flex shrink-0 items-center gap-3">
+                          <button
+                            type="button"
+                            onClick={() => setPreviewSourceId((id) => id === video.id ? null : video.id)}
+                            className="flex items-center gap-1 text-[10px] text-zinc-500 hover:text-zinc-200"
+                          >
+                            <Play className="h-3 w-3" />
+                            {previewSourceId === video.id ? "Hide preview" : "Preview range"}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setSourceTrims((previous) => ({ ...previous, [video.id]: { start: 0, end: 0 } }))}
+                            disabled={trim.start === 0 && trim.end === 0}
+                            className="text-[10px] text-zinc-500 hover:text-zinc-200 disabled:opacity-30"
+                          >
+                            Reset
+                          </button>
+                        </div>
+                      </div>
+
+                      <div className="col-start-2 grid grid-cols-2 gap-3">
+                        <label className="min-w-0 space-y-1">
+                          <span className="flex justify-between gap-1 text-[9px] text-zinc-500">
+                            <span>Start at</span><span className="font-mono text-zinc-300">{formatTimecode(trim.start, false)}</span>
+                          </span>
+                          <input
+                            type="range"
+                            min="0"
+                            max={Math.max(0, duration - trim.end - 0.5)}
+                            step="0.1"
+                            value={trim.start}
+                            aria-label={`${video.name} start trim`}
+                            onChange={(event) => {
+                              const start = Number(event.target.value);
+                              setSourceTrims((previous) => ({ ...previous, [video.id]: { start, end: trim.end } }));
+                            }}
+                            className="w-full accent-zinc-400"
+                          />
+                        </label>
+                        <label className="min-w-0 space-y-1">
+                          <span className="flex justify-between gap-1 text-[9px] text-zinc-500">
+                            <span>End before</span><span className="font-mono text-zinc-300">{formatTimecode(trim.end, false)}</span>
+                          </span>
+                          <input
+                            type="range"
+                            min="0"
+                            max={maxTrimEnd}
+                            step="0.1"
+                            value={trim.end}
+                            aria-label={`${video.name} end trim`}
+                            onChange={(event) => {
+                              const end = Number(event.target.value);
+                              setSourceTrims((previous) => ({ ...previous, [video.id]: { start: trim.start, end } }));
+                            }}
+                            className="w-full accent-zinc-400"
+                          />
+                        </label>
+                      </div>
+                      {previewSourceId === video.id && (
+                        <video
+                          ref={trimPreviewRef}
+                          src={video.url}
+                          controls
+                          playsInline
+                          preload="metadata"
+                          onLoadedMetadata={(event) => { event.currentTarget.currentTime = trim.start; }}
+                          onTimeUpdate={(event) => {
+                            const outPoint = Math.max(trim.start + 0.1, duration - trim.end);
+                            if (event.currentTarget.currentTime >= outPoint) {
+                              event.currentTarget.pause();
+                              event.currentTarget.currentTime = trim.start;
+                            }
+                          }}
+                          className="col-span-2 mt-1 max-h-36 w-full bg-black object-contain"
+                          aria-label={`Preview ${video.name} selected range`}
+                        />
+                      )}
+                      <span className="col-start-2 text-[9px] text-zinc-600">{formatTimecode(usableDuration, false)} available to Auto Cut</span>
+                    </div>
+                  );
+                })}
+              </div>
+            </section>
+
             {/* SECTION 1: AUDIO TRACK & DURATION SYNC */}
             <div className="space-y-2.5">
               <label className="text-xs font-bold text-zinc-300 uppercase tracking-wider flex items-center justify-between">
@@ -345,9 +482,9 @@ export const AIAutoEditModal: React.FC<AIAutoEditModalProps> = ({
 
                   {/* Beat & Dance Detection Box */}
                   {beatAnalysis && (
-                    <div className="p-3 rounded-xl bg-gradient-to-r from-indigo-950/40 via-purple-950/30 to-zinc-900 border border-indigo-800/40 flex items-center justify-between text-xs">
+                    <div className="p-3 rounded-md bg-zinc-900 border border-zinc-800 flex items-center justify-between text-xs">
                       <div className="flex items-center gap-2.5">
-                        <Flame className="w-4 h-4 text-amber-400 shrink-0 animate-pulse" />
+                        <Flame className="w-4 h-4 text-zinc-500 shrink-0" />
                         <div>
                           <span className="font-bold text-zinc-200 flex items-center gap-1.5">
                             <span>Dance Rhythm:</span>
@@ -414,9 +551,9 @@ export const AIAutoEditModal: React.FC<AIAutoEditModalProps> = ({
                   <button
                     key={interval.sec}
                     onClick={() => setCutIntervalSec(interval.sec)}
-                    className={`p-2.5 rounded-xl border text-center transition flex flex-col justify-center ${
+                    className={`p-2.5 rounded-md border text-center transition flex flex-col justify-center ${
                       cutIntervalSec === interval.sec
-                        ? "bg-amber-950/60 border-amber-500 text-white shadow-sm ring-1 ring-amber-500/50"
+                        ? "bg-zinc-800 border-zinc-500 text-zinc-100"
                         : "bg-zinc-900 border-zinc-800 text-zinc-400 hover:text-zinc-200 hover:border-zinc-700"
                     }`}
                   >
@@ -571,7 +708,7 @@ export const AIAutoEditModal: React.FC<AIAutoEditModalProps> = ({
                       onClick={() => setSelectedPresetId(preset.id)}
                       className={`p-2 rounded-lg border text-left transition ${
                         isSelected
-                          ? "bg-zinc-800 border-amber-500 text-white ring-1 ring-amber-500/50"
+                          ? "bg-zinc-800 border-zinc-500 text-zinc-100"
                           : "bg-zinc-900/60 border-zinc-800 text-zinc-400 hover:text-zinc-200"
                       }`}
                     >
@@ -623,7 +760,7 @@ export const AIAutoEditModal: React.FC<AIAutoEditModalProps> = ({
               ) : (
                 <button
                   onClick={handleStart}
-                  className="px-6 py-2.5 rounded-xl bg-gradient-to-r from-amber-500 via-rose-500 to-indigo-600 hover:from-amber-400 hover:via-rose-400 hover:to-indigo-500 text-white font-bold text-xs shadow-lg transition flex items-center gap-2 cursor-pointer transform hover:scale-[1.02]"
+                  className="px-5 py-2 rounded-md bg-zinc-200 hover:bg-white text-zinc-950 font-semibold text-xs transition flex items-center gap-2 cursor-pointer"
                 >
                   <Sparkles className="w-4 h-4 fill-white" />
                   <span>Generate Music Video Mashup</span>

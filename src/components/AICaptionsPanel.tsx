@@ -72,7 +72,7 @@ export const AICaptionsPanel: React.FC<AICaptionsPanelProps> = ({
   };
 
   return (
-    <div className="flex flex-col h-full bg-zinc-900/60 border-r border-zinc-800/80 w-full md:w-80 lg:w-96 select-none shrink-0 overflow-hidden">
+    <div className="flex flex-col h-full min-h-0 bg-zinc-900/60 border-r border-zinc-800/80 w-full md:w-80 lg:w-96 select-none overflow-hidden">
       {/* Captions Header */}
       <div className="p-2.5 sm:p-3 border-b border-zinc-800 flex items-center justify-between">
         <div className="flex items-center gap-2">
@@ -151,7 +151,7 @@ export const AICaptionsPanel: React.FC<AICaptionsPanelProps> = ({
       </div>
 
       {/* Captions List & Manual Editor */}
-      <div className="flex-1 overflow-y-auto p-3 space-y-2">
+      <div className="flex-1 min-h-0 overflow-y-auto p-3 space-y-2">
         <div className="flex items-center justify-between">
           <span className="text-[11px] font-bold text-zinc-400 uppercase tracking-wider">
             Timeline Subtitles ({captions.length})

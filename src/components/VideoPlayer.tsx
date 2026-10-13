@@ -45,10 +45,14 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   onToggleVideoAudioMuted,
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
+  // Persistent video element — src-swapped on clip change, never remounted (prevents black flash)
   const videoRef = useRef<HTMLVideoElement>(null);
   const overlayVideoRef = useRef<HTMLVideoElement>(null);
   const freezeCanvasRef = useRef<HTMLCanvasElement>(null);
-  const hasCapturedFrameRef = useRef<boolean>(false);
+  // Reactive state so freeze canvas re-renders correctly (useRef is NOT reactive)
+  const [hasCapturedFrame, setHasCapturedFrame] = useState<boolean>(false);
+  // Track both identity and URL because restored media receives a fresh object URL.
+  const lastMediaSourceRef = useRef<string | null>(null);
 
   const [volume, setVolume] = useState<number>(0.9);
   const [isMuted, setIsMuted] = useState<boolean>(false);
@@ -56,6 +60,31 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   const [fitMode, setFitMode] = useState<VideoFit>("contain");
   const [isFullscreen, setIsFullscreen] = useState<boolean>(false);
   const [isVideoReady, setIsVideoReady] = useState<boolean>(true);
+  const [videoLoadError, setVideoLoadError] = useState<string | null>(null);
+  const generatedBlobUrlRef = useRef<string | null>(null);
+
+  const isUsableBrowserMediaUrl = useCallback((url?: string) => {
+    if (!url || !url.trim()) return false;
+    const trimmed = url.trim();
+    if (/^(?:blob:|data:|https?:\/\/)/i.test(trimmed)) return true;
+    if (/^(?:file:\/\/|[a-zA-Z]:[\\/]|\\\\|\/)/i.test(trimmed)) return false;
+    return true;
+  }, []);
+
+  const getPlaybackUrl = useCallback((media: MediaItem | null): string | null => {
+    if (!media) return null;
+    if (media.file) {
+      if (media.blobUrl && media.blobUrl.startsWith("blob:")) return media.blobUrl;
+      if (media.url.startsWith("blob:")) return media.url;
+      const freshUrl = URL.createObjectURL(media.file);
+      if (generatedBlobUrlRef.current && generatedBlobUrlRef.current !== freshUrl) {
+        URL.revokeObjectURL(generatedBlobUrlRef.current);
+      }
+      generatedBlobUrlRef.current = freshUrl;
+      return freshUrl;
+    }
+    return isUsableBrowserMediaUrl(media.url) ? media.url : null;
+  }, [isUsableBrowserMediaUrl]);
 
   // Track lookups
   const v1Track = tracks.find((t) => t.type === "V1" && t.visible);
@@ -64,31 +93,25 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
 
   // Active clip finder with high tolerance and resilient track fallback
   const activeClip = useMemo(() => {
-    // 1. Check V1 track clips
-    if (v1Track && v1Track.clips.length > 0) {
-      const exact = v1Track.clips.find(
-        (c) => currentTime >= c.startTime && currentTime < c.startTime + c.duration
+    const findVisibleClip = (clips: TimelineClip[]) => {
+      const orderedClips = [...clips].sort((a, b) => a.startTime - b.startTime);
+      const exact = orderedClips.find(
+        (clip) => currentTime >= clip.startTime && currentTime < clip.startTime + clip.duration
       );
       if (exact) return exact;
 
-      const near = v1Track.clips.find(
-        (c) => currentTime >= c.startTime - 0.2 && currentTime <= c.startTime + c.duration + 0.2
-      );
-      if (near) return near;
+      const previous = [...orderedClips]
+        .reverse()
+        .find((clip) => clip.startTime + clip.duration <= currentTime);
+      return previous || orderedClips[0] || null;
+    };
 
-      if (currentTime < v1Track.clips[0].startTime) return v1Track.clips[0];
-      const lastClip = v1Track.clips[v1Track.clips.length - 1];
-      if (currentTime >= lastClip.startTime) return lastClip;
-      return v1Track.clips[0];
+    if (v1Track && v1Track.clips.length > 0) {
+      return findVisibleClip(v1Track.clips);
     }
 
-    // 2. If V1 has no clips, check V2 track clips
     if (v2Track && v2Track.clips.length > 0) {
-      const exact = v2Track.clips.find(
-        (c) => currentTime >= c.startTime && currentTime < c.startTime + c.duration
-      );
-      if (exact) return exact;
-      return v2Track.clips[0];
+      return findVisibleClip(v2Track.clips);
     }
 
     return null;
@@ -105,16 +128,78 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     (c) => currentTime >= c.startTime && currentTime <= c.startTime + c.duration
   );
 
+  const textMotionStyle = useMemo(() => {
+    if (!activeTextClip?.textStyle) return {};
+    const style = activeTextClip.textStyle;
+    const animation = style.animation || "none";
+    if (animation === "none") return {};
+    const duration = Math.max(0.15, style.animationDuration || 0.65);
+    const progress = Math.max(0, Math.min(1, (currentTime - activeTextClip.startTime) / duration));
+    const eased = 1 - Math.pow(1 - progress, 3);
+    if (animation === "rise") return { opacity: eased, transform: `translateY(${(1 - eased) * 30}px)` };
+    if (animation === "pop") return { opacity: eased, transform: `scale(${0.72 + eased * 0.28})` };
+    if (animation === "slide") return { opacity: eased, transform: `translateX(${(1 - eased) * -48}px)` };
+    if (animation === "reveal") return { clipPath: `inset(0 ${(1 - eased) * 100}% 0 0)` };
+    return { opacity: eased };
+  }, [activeTextClip, currentTime]);
+
   // Resilient active media resolution:
   // If activeClip exists, find media by id; fallback to any video media item
   const activeMedia = useMemo(() => {
     if (activeClip) {
-      const found = mediaItems.find((m) => m.id === activeClip.mediaId);
-      if (found) return found;
+      return mediaItems.find((m) => m.id === activeClip.mediaId) ||
+        mediaItems.find((m) => m.name.trim().toLocaleLowerCase() === activeClip.label?.trim().toLocaleLowerCase()) ||
+        null;
     }
-    // Fallback to first video in library
-    return mediaItems.find((m) => m.type === "video") || null;
+    return null;
   }, [activeClip, mediaItems]);
+
+  // ── Src-swap: swap video src imperatively when active media changes ──────────
+  // This prevents React from remounting the <video> element, which is what causes
+  // the black-frame flash. The freeze canvas holds the last frame while the new
+  // video loads.
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video) return;
+
+    const newSourceKey = activeMedia ? `${activeMedia.id}:${getPlaybackUrl(activeMedia)}` : null;
+    if (newSourceKey === lastMediaSourceRef.current) return;
+    lastMediaSourceRef.current = newSourceKey;
+
+    if (!activeMedia || activeMedia.type !== "video") {
+      // No video clip — freeze canvas holds last frame; pause the element
+      if (!video.paused) video.pause();
+      return;
+    }
+
+    if (!activeMedia.file && !isUsableBrowserMediaUrl(activeMedia.url)) {
+      setVideoLoadError("This project has the original file path, but the file data is not available in browser storage. Re-import the original file to restore playback.");
+      setIsVideoReady(true);
+      return;
+    }
+
+    // Show freeze canvas while new clip loads
+    setIsVideoReady(false);
+    setVideoLoadError(null);
+
+    // Prefer the original File-backed blob to avoid dead blob URLs from prior browser sessions.
+    const newSrc = getPlaybackUrl(activeMedia);
+    if (!newSrc) {
+      setVideoLoadError("This video is missing from the project storage. Re-import the original file to restore it.");
+      setIsVideoReady(true);
+      return;
+    }
+
+    if (video.src !== newSrc) {
+      if (!newSrc.startsWith("blob:") && !newSrc.startsWith("data:")) {
+        video.crossOrigin = "anonymous";
+      } else {
+        video.removeAttribute("crossorigin");
+      }
+      video.src = newSrc;
+      video.load();
+    }
+  }, [activeMedia, getPlaybackUrl, isUsableBrowserMediaUrl]);
 
   const overlayMedia = activeV2Clip
     ? mediaItems.find((m) => m.id === activeV2Clip.mediaId)
@@ -137,7 +222,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       const ctx = canvas.getContext("2d");
       if (ctx && videoEl.videoWidth > 0) {
         ctx.drawImage(videoEl, 0, 0, canvas.width, canvas.height);
-        hasCapturedFrameRef.current = true;
+        setHasCapturedFrame(true);  // reactive — triggers re-render so freeze canvas shows
       }
     } catch {
       // Ignored
@@ -167,45 +252,98 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     }
   }, [overlayMedia]);
 
-  // Synchronize main video element with timeline playhead
+  // Helper: compute where in the source video file the playhead should be.
+  // Real editor trim behavior: in-point = trimStart, out-point = media duration - trimEnd.
+  const getVideoTargetSec = useCallback((clip: typeof activeClip, tlTime: number) => {
+    if (!clip) return Math.max(0, tlTime);
+
+    const media = mediaItems.find((item) => item.id === clip.mediaId);
+    const mediaDuration = Math.max(0.1, media?.duration || clip.duration || 1);
+    const trimStart = Math.max(0, clip.trimStart || 0);
+    const trimEnd = Math.max(0, clip.trimEnd || 0);
+    const sourceStart = Math.min(trimStart, mediaDuration);
+    const sourceEnd = Math.max(sourceStart, mediaDuration - trimEnd);
+    const elapsed = Math.max(0, Math.min(clip.duration, tlTime - clip.startTime));
+    const sourceTime = sourceStart + elapsed * (clip.speed || 1);
+
+    return Math.max(sourceStart, Math.min(sourceTime, Math.max(sourceStart, sourceEnd - 0.001)));
+  }, [mediaItems]);
+
+  // Ref to track the pending play() promise so we can safely pause after it resolves
+  const playPromiseRef = useRef<Promise<void> | null>(null);
+  // Ref to track current clip id so we can detect clip transitions inside event handlers
+  const activeClipIdRef = useRef<string | null>(null);
+
+  // ── Effect 1: Play / Pause transitions ─────────────────────────────────────
+  // Runs ONLY when isPlaying, the active clip, or media changes — NOT on every currentTime tick.
+  // This is what a real media player does: call play() once and let it run natively.
   useEffect(() => {
     const video = videoRef.current;
     if (!video || !activeMedia || activeMedia.type !== "video") return;
 
-    const targetSec = activeClip
-      ? Math.max(
-          0,
-          (activeClip.trimStart || 0) +
-            (currentTime - activeClip.startTime) * (activeClip.speed || 1)
-        )
-      : Math.max(0, currentTime);
+    const clip = activeClip;
+    activeClipIdRef.current = clip?.id ?? null;
 
-    // Playback rate
-    video.playbackRate = (activeClip?.speed || 1) * playbackSpeed;
+    // Always keep playback rate synced to clip speed setting
+    video.playbackRate = (clip?.speed || 1) * playbackSpeed;
 
-    // Time synchronization
-    if (!isPlaying) {
-      // When paused or scrubbing: seek immediately to show the exact frame
-      if (Math.abs(video.currentTime - targetSec) > 0.05) {
-        try {
-          video.currentTime = targetSec;
-        } catch {}
+    const doPlay = () => {
+      if (video.readyState < 2) {
+        // Not ready yet — wait for canplay then try again
+        const onReady = () => {
+          video.removeEventListener("canplay", onReady);
+          if (activeClipIdRef.current === (clip?.id ?? null)) {
+            playPromiseRef.current = video.play();
+            playPromiseRef.current?.catch(() => { playPromiseRef.current = null; });
+          }
+        };
+        video.addEventListener("canplay", onReady);
+        return;
       }
-      if (!video.paused) {
-        video.pause();
+      playPromiseRef.current = video.play();
+      playPromiseRef.current?.catch(() => { playPromiseRef.current = null; });
+    };
+
+    if (isPlaying) {
+      const targetSec = clip ? getVideoTargetSec(clip, currentTime) : Math.max(0, currentTime);
+
+      // Keep preview aligned to the timeline while playing, without pausing at clip ends.
+      if (Math.abs(video.currentTime - targetSec) > 0.15) {
+        try { video.currentTime = targetSec; } catch {}
+      }
+
+      if (video.paused) {
+        doPlay();
       }
     } else {
-      // During active playback: only correct if significant drift (>0.4s) to avoid seeking stutters
-      if (Math.abs(video.currentTime - targetSec) > 0.4) {
-        try {
-          video.currentTime = targetSec;
-        } catch {}
-      }
-      if (video.paused) {
-        video.play().catch(() => {});
+      // Pause
+      const safePause = () => {
+        if (!video.paused) video.pause();
+      };
+      if (playPromiseRef.current) {
+        playPromiseRef.current.then(safePause).catch(() => {});
+        playPromiseRef.current = null;
+      } else {
+        safePause();
       }
     }
-  }, [currentTime, isPlaying, activeClip, activeMedia, playbackSpeed]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isPlaying, activeClip?.id, activeMedia?.id, playbackSpeed]);
+
+  // ── Effect 2: Scrubbing — only when PAUSED ─────────────────────────────────
+  // Runs on every currentTime change but ONLY acts when video is paused.
+  // During active playback this effect is a no-op — video plays natively, untouched.
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video || !activeMedia || activeMedia.type !== "video") return;
+    if (isPlaying) return; // ← key guard: never interrupt live playback
+
+    const targetSec = getVideoTargetSec(activeClip, currentTime);
+    if (Math.abs(video.currentTime - targetSec) > 0.04) {
+      try { video.currentTime = targetSec; } catch {}
+    }
+    if (!video.paused) video.pause();
+  }, [currentTime, isPlaying, activeClip, activeMedia, getVideoTargetSec]);
 
   // Multi-Track Audio Players for A1, A2, A3
   const audioTracks = tracks.filter((t) => t.type.startsWith("A") && !t.muted);
@@ -253,35 +391,35 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   };
 
   return (
-    <div className="flex-1 flex flex-col bg-zinc-950/95 overflow-hidden select-none relative">
+    <div className="flex-1 flex flex-col bg-zinc-950 overflow-hidden select-none relative">
       {/* Video Stage Canvas */}
       <div
         ref={containerRef}
         onClick={onTogglePlay}
-        className="flex-1 relative flex items-center justify-center p-2 sm:p-3 md:p-6 bg-radial from-zinc-900 to-zinc-950 overflow-hidden cursor-pointer"
+        className="flex-1 relative flex items-center justify-center p-2 sm:p-3 md:p-6 bg-zinc-950 overflow-hidden cursor-pointer"
       >
         {/* Frame Container */}
         <div
-          className={`relative rounded-xl overflow-hidden shadow-2xl bg-black border border-zinc-800/90 flex items-center justify-center transition-all ${aspectClass}`}
+          className={`relative rounded-md overflow-hidden bg-black border border-zinc-800 flex items-center justify-center ${aspectClass}`}
         >
           {/* Video Audio Muted Visual Indicator Badge */}
           {isVideoAudioMuted || v1Track?.muted ? (
             <button
               onClick={onToggleVideoAudioMuted}
-              className="absolute top-3 left-3 z-30 flex items-center gap-1.5 px-2.5 py-1 rounded bg-black/85 border border-rose-500/60 text-rose-300 hover:text-white hover:bg-black text-[10px] font-mono shadow-md backdrop-blur-sm cursor-pointer transition-all"
+              className="absolute top-2 left-2 z-30 p-1 rounded-sm bg-black/50 text-zinc-300 hover:text-white hover:bg-black/70 cursor-pointer transition"
               title="Camera sound is muted (Audio Track Only). Click to toggle video audio."
+              aria-label="Video sound muted"
             >
-              <VolumeX className="w-3.5 h-3.5 text-rose-400 shrink-0" />
-              <span>Video Sound: Muted (Audio Track Only)</span>
+              <VolumeX className="w-3.5 h-3.5" />
             </button>
           ) : (
             <button
               onClick={onToggleVideoAudioMuted}
-              className="absolute top-3 left-3 z-30 flex items-center gap-1.5 px-2.5 py-1 rounded bg-black/80 border border-zinc-700/60 text-zinc-300 hover:text-white hover:bg-zinc-900 text-[10px] font-mono shadow-md backdrop-blur-sm cursor-pointer transition-all"
+              className="absolute top-2 left-2 z-30 p-1 rounded-sm bg-black/50 text-zinc-300 hover:text-white hover:bg-black/70 cursor-pointer transition"
               title="Video camera audio is active. Click to mute video sound (Music Only)."
+              aria-label="Video sound active"
             >
-              <Volume2 className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
-              <span>Video Sound: Active</span>
+              <Volume2 className="w-3.5 h-3.5" />
             </button>
           )}
 
@@ -299,17 +437,16 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
               ...filterStyle,
               ...zoomStyle,
               zIndex: 10,
-              display: hasCapturedFrameRef.current && !isVideoReady ? "block" : "none",
+              // hasCapturedFrame is reactive state — correctly triggers re-render
+              display: hasCapturedFrame && !isVideoReady ? "block" : "none",
             }}
           />
 
-          {/* Main Media Render (Video or Image) */}
+          {/* Main Media Render — persistent video element (no key=, no remount, no black frame) */}
           {activeMedia ? (
             activeMedia.type === "video" ? (
               <video
-                key={activeMedia.id}
                 ref={videoRef}
-                src={activeMedia.url}
                 playsInline
                 preload="auto"
                 muted={
@@ -320,15 +457,39 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
                 }
                 onLoadedMetadata={(e) => {
                   const targetSec = activeClip
-                    ? Math.max(
-                        0,
-                        (activeClip.trimStart || 0) +
-                          (currentTime - activeClip.startTime) * (activeClip.speed || 1)
-                      )
+                    ? getVideoTargetSec(activeClip, currentTime)
                     : Math.max(0, currentTime);
                   e.currentTarget.currentTime = targetSec;
+                  setVideoLoadError(null);
                   setIsVideoReady(true);
                   captureFrameToCanvas(e.currentTarget);
+                }}
+                onError={(e) => {
+                  if (activeMedia?.file) {
+                    const freshUrl = URL.createObjectURL(activeMedia.file);
+                    if (generatedBlobUrlRef.current) {
+                      URL.revokeObjectURL(generatedBlobUrlRef.current);
+                    }
+                    generatedBlobUrlRef.current = freshUrl;
+                    e.currentTarget.src = freshUrl;
+                    e.currentTarget.load();
+                    return;
+                  }
+
+                  if (!activeMedia?.file && !isUsableBrowserMediaUrl(activeMedia?.url)) {
+                    setVideoLoadError("This project has the original file path, but the file data is not available in browser storage. Re-import the original file to restore playback.");
+                    setIsVideoReady(true);
+                    return;
+                  }
+
+                  const errorCode = e.currentTarget.error?.code;
+                  const reason = errorCode === 4
+                    ? "This browser cannot decode this video format."
+                    : errorCode === 3
+                    ? "The video data could not be decoded."
+                    : "The video file could not be loaded.";
+                  setVideoLoadError(`${reason} Re-import the original video if the file itself is damaged.`);
+                  setIsVideoReady(true);
                 }}
                 onCanPlay={(e) => {
                   setIsVideoReady(true);
@@ -342,8 +503,25 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
                   setIsVideoReady(true);
                   captureFrameToCanvas(e.currentTarget);
                 }}
+                onSeeking={() => setIsVideoReady(false)}
                 onTimeUpdate={(e) => {
                   captureFrameToCanvas(e.currentTarget);
+                  if (isPlaying && activeClip) {
+                    const media = mediaItems.find((item) => item.id === activeClip.mediaId);
+                    const mediaDuration = Math.max(0.1, media?.duration || activeClip.duration || 1);
+                    const trimStart = Math.max(0, activeClip.trimStart || 0);
+                    const trimEnd = Math.max(0, activeClip.trimEnd || 0);
+                    const sourceStart = Math.min(trimStart, mediaDuration);
+                    const sourceEnd = Math.max(sourceStart, mediaDuration - trimEnd);
+                    const videoSec = e.currentTarget.currentTime;
+
+                    // Keep the source video within the active trim window without pausing it.
+                    if (videoSec < sourceStart) {
+                      e.currentTarget.currentTime = sourceStart;
+                    } else if (videoSec > sourceEnd) {
+                      e.currentTarget.currentTime = sourceEnd;
+                    }
+                  }
                 }}
                 style={{
                   ...filterStyle,
@@ -380,6 +558,12 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
               <span className="text-[11px] text-zinc-600 mt-1">
                 Upload media or drag clips to the timeline to begin
               </span>
+            </div>
+          )}
+
+          {videoLoadError && activeMedia?.type === "video" && (
+            <div className="absolute inset-x-4 bottom-4 z-30 border border-rose-400/30 bg-black/90 px-4 py-3 text-sm text-rose-200" role="alert">
+              {videoLoadError}
             </div>
           )}
 
@@ -450,7 +634,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
           {/* T1 Title Text Overlay */}
           {activeTextClip && activeTextClip.text && (
             <div
-              className="absolute pointer-events-none flex items-center justify-center px-4 z-25"
+              className="absolute pointer-events-none z-25 max-w-[92%]"
               style={{
                 top: `${activeTextClip.textStyle?.positionY ?? 50}%`,
                 left: `${activeTextClip.textStyle?.positionX ?? 50}%`,
@@ -458,11 +642,26 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
               }}
             >
               <div
-                className="px-4 py-2 rounded-xl text-center shadow-2xl backdrop-blur-sm font-black tracking-wide"
+                className="px-4 py-2 backdrop-blur-sm"
                 style={{
-                  backgroundColor: activeTextClip.textStyle?.backgroundColor || "rgba(0,0,0,0.65)",
+                  backgroundColor: activeTextClip.textStyle?.backgroundColor ?? "transparent",
                   color: activeTextClip.textStyle?.color || "#ffffff",
                   fontSize: `${activeTextClip.textStyle?.fontSize || 24}px`,
+                  fontFamily: activeTextClip.textStyle?.fontFamily || "sans-serif",
+                  fontWeight: activeTextClip.textStyle?.bold ? 800 : 500,
+                  fontStyle: activeTextClip.textStyle?.italic ? "italic" : "normal",
+                  textAlign: activeTextClip.textStyle?.align || "center",
+                  borderRadius: `${activeTextClip.textStyle?.boxRadius ?? 8}px`,
+                  WebkitTextStroke: activeTextClip.textStyle?.outlineWidth
+                    ? `${activeTextClip.textStyle.outlineWidth}px ${activeTextClip.textStyle.outlineColor || "#000000"}`
+                    : undefined,
+                  textShadow: activeTextClip.textStyle?.shadow === false
+                    ? "none"
+                    : "0 2px 8px rgba(0,0,0,0.8)",
+                  whiteSpace: "pre-wrap",
+                  overflowWrap: "anywhere",
+                  lineHeight: 1.12,
+                  ...textMotionStyle,
                 }}
               >
                 {activeTextClip.text}
@@ -482,28 +681,20 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       </div>
 
       {/* Video Transport & Player Control Bar */}
-      <div className="h-12 bg-zinc-950 border-t border-zinc-800/80 px-2 sm:px-4 flex items-center justify-between z-20 shrink-0 select-none">
-        {/* Left: Timecode + Step frame */}
+      <div className="h-11 bg-zinc-950 border-t border-zinc-800 px-2 sm:px-4 flex items-center justify-between z-20 shrink-0 select-none">
+        {/* Left: Step frame controls */}
         <div className="flex items-center gap-1 sm:gap-1.5">
-          <div className="font-mono text-[10px] sm:text-xs font-bold text-zinc-100 flex items-center gap-1 sm:gap-1.5 bg-zinc-900 px-1.5 sm:px-2.5 py-1 rounded-md border border-zinc-800">
-            <span className="text-amber-400 sm:hidden">{formatTimecode(currentTime, false)}</span>
-            <span className="text-amber-400 hidden sm:inline">{formatTimecode(currentTime, true, project.frameRate)}</span>
-            <span className="text-zinc-600">/</span>
-            <span className="text-zinc-400 sm:hidden">{formatTimecode(totalDuration, false)}</span>
-            <span className="text-zinc-400 hidden sm:inline">{formatTimecode(totalDuration, true, project.frameRate)}</span>
-          </div>
-
           <button
             onClick={() => onStepFrame(-1)}
             title="Step Back 1 Frame (,)"
-            className="p-1.5 rounded hover:bg-zinc-800 text-zinc-400 hover:text-zinc-200 transition min-w-[32px] min-h-[32px] flex items-center justify-center active:scale-95"
+            className="p-1.5 rounded text-zinc-500 hover:bg-zinc-900 hover:text-zinc-200 transition min-w-[32px] min-h-[32px] flex items-center justify-center"
           >
             <SkipBack className="w-3.5 h-3.5" />
           </button>
           <button
             onClick={() => onStepFrame(1)}
             title="Step Forward 1 Frame (.)"
-            className="p-1.5 rounded hover:bg-zinc-800 text-zinc-400 hover:text-zinc-200 transition min-w-[32px] min-h-[32px] flex items-center justify-center active:scale-95"
+            className="p-1.5 rounded text-zinc-500 hover:bg-zinc-900 hover:text-zinc-200 transition min-w-[32px] min-h-[32px] flex items-center justify-center"
           >
             <SkipForward className="w-3.5 h-3.5" />
           </button>
@@ -514,14 +705,14 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
           <button
             onClick={() => onSeek(0)}
             title="Jump to Start"
-            className="p-1.5 rounded-lg hover:bg-zinc-800 text-zinc-400 hover:text-white transition min-w-[32px] min-h-[32px] flex items-center justify-center active:scale-95"
+            className="p-1.5 rounded text-zinc-500 hover:bg-zinc-900 hover:text-zinc-200 transition min-w-[32px] min-h-[32px] flex items-center justify-center"
           >
             <RotateCcw className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
           </button>
 
           <button
             onClick={onTogglePlay}
-            className="w-9 h-9 sm:w-10 sm:h-10 rounded-full bg-white hover:bg-zinc-200 text-zinc-950 flex items-center justify-center shadow-lg transition transform hover:scale-105 active:scale-95 min-w-[36px] min-h-[36px]"
+            className="w-8 h-8 rounded-md bg-zinc-800 hover:bg-zinc-700 text-zinc-100 flex items-center justify-center transition min-w-[32px] min-h-[32px]"
             title="Play / Pause (Spacebar)"
           >
             {isPlaying ? (
@@ -538,7 +729,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
               const spd = parseFloat(e.target.value);
               setPlaybackSpeed(spd);
             }}
-            className="bg-zinc-900 text-zinc-300 text-[10px] sm:text-[11px] font-mono border border-zinc-800 rounded px-1.5 py-1 focus:outline-none cursor-pointer min-h-[32px]"
+            className="bg-transparent text-zinc-400 text-[10px] sm:text-[11px] font-mono border-0 rounded px-1.5 py-1 focus:outline-none cursor-pointer min-h-[32px]"
             title="Playback Speed"
           >
             <option value="0.5">0.5x</option>
@@ -552,18 +743,18 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
 
         {/* Right: Aspect ratio + Volume + Fullscreen */}
         <div className="flex items-center gap-1.5 sm:gap-3">
-          <span className="hidden sm:inline text-[10px] font-mono text-zinc-400 bg-zinc-900 border border-zinc-800 px-2 py-0.5 rounded">
+          <span className="hidden sm:inline text-[10px] font-mono text-zinc-500 px-1">
             {project.aspectRatio}
           </span>
 
           {/* Fit Selector (contain, cover, fill) - Desktop only */}
-          <div className="hidden md:flex items-center bg-zinc-900 border border-zinc-800 rounded-md p-0.5 text-[10px] font-medium text-zinc-400">
+          <div className="hidden md:flex items-center gap-1 text-[10px] font-medium text-zinc-500">
             {(["contain", "cover", "fit"] as const).map((m) => (
               <button
                 key={m}
                 onClick={() => setFitMode(m)}
-                className={`px-1.5 py-0.5 capitalize rounded ${
-                  fitMode === m ? "bg-zinc-800 text-white font-bold" : "hover:text-zinc-200"
+                className={`px-1.5 py-1 capitalize border-b ${
+                  fitMode === m ? "border-zinc-400 text-zinc-200" : "border-transparent hover:text-zinc-200"
                 }`}
               >
                 {m}
@@ -575,11 +766,11 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
           <div className="hidden lg:flex items-center gap-1.5">
             <button
               onClick={() => setIsMuted(!isMuted)}
-              className="p-1 text-zinc-400 hover:text-white transition"
+              className="p-1 text-zinc-500 hover:text-zinc-200 transition"
               title={isMuted ? "Unmute" : "Mute"}
             >
               {isMuted || volume === 0 ? (
-                <VolumeX className="w-4 h-4 text-rose-400" />
+                <VolumeX className="w-4 h-4" />
               ) : (
                 <Volume2 className="w-4 h-4" />
               )}

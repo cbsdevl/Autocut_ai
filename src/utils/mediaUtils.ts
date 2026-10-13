@@ -6,12 +6,14 @@ export async function extractMediaMetadata(file: File): Promise<MediaItem> {
   const isVideo = file.type.startsWith("video/") || ["mp4", "mov", "webm", "mkv", "avi", "m4v"].includes(extension);
   const isAudio = file.type.startsWith("audio/") || ["mp3", "wav", "aac", "ogg", "m4a"].includes(extension);
   const isImage = file.type.startsWith("image/") || ["jpg", "jpeg", "png", "webp", "gif"].includes(extension);
+  const sourcePath = (file as File & { path?: string }).path || undefined;
 
   const url = URL.createObjectURL(file);
   const baseItem = {
     id: "media_" + Date.now() + "_" + Math.random().toString(36).substring(2, 7),
     name: file.name,
     file,
+    sourcePath,
     dateAdded: new Date().toISOString().split("T")[0],
     licenseType: "unknown" as const,
     source: "Local device upload",

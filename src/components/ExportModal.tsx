@@ -321,16 +321,12 @@ export const ExportModal: React.FC<ExportModalProps> = ({
 
   return (
     <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-2.5 sm:p-4 md:p-6 select-none font-sans">
-      <div className="bg-zinc-950 border border-zinc-800 rounded-2xl w-full max-w-5xl max-h-[95vh] sm:max-h-[90vh] flex flex-col overflow-hidden shadow-2xl shadow-black/80 text-zinc-100">
+      <div className="bg-zinc-950 border border-zinc-800 rounded-lg w-full max-w-5xl max-h-[95vh] sm:max-h-[90vh] flex flex-col overflow-hidden shadow-xl shadow-black/50 text-zinc-100">
         
         {/* System Header Bar */}
-        <div className="bg-zinc-900/90 border-b border-zinc-800 px-3.5 sm:px-5 py-2.5 sm:py-3 flex items-center justify-between shrink-0 gap-2">
+        <div className="bg-zinc-950 border-b border-zinc-800 px-3.5 sm:px-5 py-2.5 sm:py-3 flex items-center justify-between shrink-0 gap-2">
           <div className="flex items-center gap-2 sm:gap-3 min-w-0">
-            <div className="w-8 h-8 rounded-lg bg-gradient-to-tr from-amber-500 via-rose-500 to-indigo-600 p-[1.5px] shadow-sm flex items-center justify-center shrink-0">
-              <div className="w-full h-full bg-zinc-950 rounded-[7px] flex items-center justify-center">
-                <Download className="w-4 h-4 text-amber-400 stroke-[2.5]" />
-              </div>
-            </div>
+            <Download className="w-4 h-4 text-zinc-400 shrink-0" />
             <div className="min-w-0">
               <div className="flex items-center gap-2 flex-wrap">
                 <h2 className="text-xs sm:text-sm font-black uppercase tracking-wider text-zinc-100 truncate">
@@ -422,7 +418,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({
               </div>
               <div className="w-full bg-zinc-900 h-3 rounded-full overflow-hidden p-0.5 border border-zinc-800">
                 <div
-                  className="bg-gradient-to-r from-amber-500 via-rose-500 to-indigo-600 h-full rounded-full transition-all duration-300 shadow-sm"
+                  className="bg-amber-500 h-full rounded-sm transition-all duration-300"
                   style={{ width: `${renderProgress?.progress || renderProgress?.percent || 0}%` }}
                 />
               </div>
@@ -485,7 +481,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({
               <a
                 href={renderProgress?.downloadUrl}
                 download={outputFileName}
-                className="flex-1 sm:flex-initial inline-flex items-center justify-center gap-2 px-6 py-2.5 rounded-xl bg-gradient-to-r from-amber-500 via-rose-500 to-indigo-600 hover:from-amber-400 hover:via-rose-400 hover:to-indigo-500 text-white font-bold text-xs sm:text-sm shadow-lg shadow-rose-950/40 transition transform hover:scale-[1.02] active:scale-95 cursor-pointer min-h-[42px]"
+                className="flex-1 sm:flex-initial inline-flex items-center justify-center gap-2 px-5 py-2 rounded-md bg-zinc-200 hover:bg-white text-zinc-950 font-semibold text-xs sm:text-sm transition cursor-pointer min-h-[40px]"
               >
                 <Download className="w-4 h-4 stroke-[2.5]" />
                 <span>Download {outputFileName}</span>
@@ -551,9 +547,9 @@ export const ExportModal: React.FC<ExportModalProps> = ({
                   <div className="grid grid-cols-3 gap-1.5 text-xs">
                     <button
                       onClick={() => setDurationMode("full")}
-                      className={`p-2.5 rounded-xl border text-left transition cursor-pointer ${
+                      className={`p-2.5 rounded-md border text-left transition cursor-pointer ${
                         durationMode === "full"
-                          ? "bg-amber-500/10 border-amber-500/60 text-amber-300 font-bold shadow-sm"
+                          ? "bg-zinc-800 border-zinc-500 text-zinc-100 font-medium"
                           : "bg-zinc-900 border-zinc-800 text-zinc-400 hover:text-zinc-200 hover:border-zinc-700"
                       }`}
                     >
@@ -562,9 +558,9 @@ export const ExportModal: React.FC<ExportModalProps> = ({
                     </button>
                     <button
                       onClick={() => setDurationMode("preview5")}
-                      className={`p-2.5 rounded-xl border text-left transition cursor-pointer ${
+                      className={`p-2.5 rounded-md border text-left transition cursor-pointer ${
                         durationMode === "preview5"
-                          ? "bg-amber-500/10 border-amber-500/60 text-amber-300 font-bold shadow-sm"
+                          ? "bg-zinc-800 border-zinc-500 text-zinc-100 font-medium"
                           : "bg-zinc-900 border-zinc-800 text-zinc-400 hover:text-zinc-200 hover:border-zinc-700"
                       }`}
                     >
@@ -573,9 +569,9 @@ export const ExportModal: React.FC<ExportModalProps> = ({
                     </button>
                     <button
                       onClick={() => setDurationMode("preview15")}
-                      className={`p-2.5 rounded-xl border text-left transition cursor-pointer ${
+                      className={`p-2.5 rounded-md border text-left transition cursor-pointer ${
                         durationMode === "preview15"
-                          ? "bg-amber-500/10 border-amber-500/60 text-amber-300 font-bold shadow-sm"
+                          ? "bg-zinc-800 border-zinc-500 text-zinc-100 font-medium"
                           : "bg-zinc-900 border-zinc-800 text-zinc-400 hover:text-zinc-200 hover:border-zinc-700"
                       }`}
                     >
@@ -982,7 +978,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({
                       <button
                         onClick={onGenerateYouTubePackage}
                         disabled={isGeneratingPackage}
-                        className="px-3.5 py-1.5 rounded-lg bg-gradient-to-r from-amber-500 via-rose-500 to-indigo-600 hover:from-amber-400 text-white font-bold text-xs flex items-center gap-1.5 transition cursor-pointer shadow-sm active:scale-95 disabled:opacity-40"
+                        className="px-3 py-1.5 rounded-md bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 text-zinc-200 font-medium text-xs flex items-center gap-1.5 transition cursor-pointer disabled:opacity-40"
                       >
                         {isGeneratingPackage ? (
                           <RefreshCw className="w-3.5 h-3.5 animate-spin" />
@@ -1062,9 +1058,9 @@ export const ExportModal: React.FC<ExportModalProps> = ({
             <button
               onClick={handleExportClick}
               disabled={isTimelineEmpty || isRendering}
-              className="flex-1 sm:flex-initial px-5 sm:px-6 py-2 rounded-xl bg-gradient-to-r from-amber-500 via-rose-500 to-indigo-600 hover:from-amber-400 hover:via-rose-400 hover:to-indigo-500 disabled:opacity-40 disabled:pointer-events-none text-xs sm:text-sm font-bold text-white shadow-lg shadow-rose-950/40 transition flex items-center justify-center gap-2 cursor-pointer transform hover:scale-[1.01] active:scale-95 min-h-[40px]"
+              className="flex-1 sm:flex-initial px-5 py-2 rounded-md bg-zinc-200 hover:bg-white disabled:opacity-40 disabled:pointer-events-none text-xs sm:text-sm font-semibold text-zinc-950 transition flex items-center justify-center gap-2 cursor-pointer min-h-[40px]"
             >
-              <Download className="w-4 h-4 text-white stroke-[2.5] shrink-0" />
+              <Download className="w-4 h-4 shrink-0" />
               <span>Export {format.toUpperCase()}</span>
             </button>
           </div>

@@ -10,6 +10,7 @@ import {
   Wand2,
   ShieldCheck,
   ShieldAlert,
+  FolderOpen,
 } from "lucide-react";
 import { MediaItem } from "../types";
 
@@ -28,12 +29,17 @@ interface SidebarNavProps {
   activeTab: TabType;
   onSelectTab: (tab: TabType) => void;
   mediaItems: MediaItem[];
+  /** Called when the user clicks the "Projects" button in the sidebar. */
+  onOpenProjects?: () => void;
+  projectCount?: number;
 }
 
 export const SidebarNav: React.FC<SidebarNavProps> = ({
   activeTab,
   onSelectTab,
   mediaItems,
+  onOpenProjects,
+  projectCount,
 }) => {
   const hasRisk = mediaItems.some(
     (m) => m.riskLevel === "High" || m.riskLevel === "Medium"
@@ -51,29 +57,49 @@ export const SidebarNav: React.FC<SidebarNavProps> = ({
     {
       id: "copyright",
       label: "Copyright",
-      icon: hasRisk ? (
-        <ShieldAlert className="w-5 h-5 text-amber-400" />
-      ) : (
-        <ShieldCheck className="w-5 h-5 text-emerald-400" />
-      ),
+      icon: hasRisk ? <ShieldAlert className="w-4.5 h-4.5" /> : <ShieldCheck className="w-4.5 h-4.5" />,
       badge: hasRisk,
       badgeColor: "bg-amber-500",
     },
   ];
 
   return (
-    <aside className="hidden md:flex w-18 bg-zinc-950 border-r border-zinc-800/80 flex-col items-center py-2.5 shrink-0 select-none z-20">
-      <div className="flex flex-col items-center gap-1 w-full px-1.5">
+    <aside className="hidden md:flex w-18 bg-zinc-950 border-r border-zinc-800 flex-col items-center py-2 shrink-0 select-none z-20">
+      {/* ── Projects switcher button (top of sidebar) ── */}
+      {onOpenProjects && (
+        <div className="w-full px-1.5 mb-1.5 pb-1.5 border-b border-zinc-800/60">
+          <button
+            onClick={onOpenProjects}
+            title="Switch Project"
+            className="w-full py-2 px-1 rounded-md flex flex-col items-center justify-center gap-1 transition relative group text-zinc-500 hover:text-zinc-200 hover:bg-zinc-900"
+          >
+            <div className="relative">
+              <FolderOpen className="w-5 h-5" />
+              {projectCount !== undefined && projectCount > 0 && (
+                  <span className="absolute -top-1 -right-1.5 min-w-[13px] h-[13px] rounded-full bg-zinc-700 text-[8px] font-medium text-zinc-200 flex items-center justify-center px-0.5">
+                  {projectCount > 99 ? "99+" : projectCount}
+                </span>
+              )}
+            </div>
+            <span className="text-[9px] tracking-tight leading-none text-center font-medium">
+              Projects
+            </span>
+          </button>
+        </div>
+      )}
+
+      {/* ── Tool tabs ── */}
+      <div className="flex flex-col items-center gap-0.5 w-full px-1.5">
         {tabs.map((tab) => {
           const isActive = activeTab === tab.id;
           return (
             <button
               key={tab.id}
               onClick={() => onSelectTab(tab.id)}
-              className={`w-full py-2.5 px-1 rounded-xl flex flex-col items-center justify-center gap-1 transition relative group ${
+              className={`w-full py-2 px-1 rounded-md flex flex-col items-center justify-center gap-1 transition relative group ${
                 isActive
-                  ? "bg-zinc-800/90 text-amber-400 shadow-inner font-semibold"
-                  : "text-zinc-400 hover:text-zinc-200 hover:bg-zinc-900"
+                  ? "bg-zinc-900 text-zinc-100 font-medium"
+                  : "text-zinc-500 hover:text-zinc-200 hover:bg-zinc-900/70"
               }`}
               title={tab.label}
             >
@@ -87,11 +113,11 @@ export const SidebarNav: React.FC<SidebarNavProps> = ({
                   />
                 )}
               </div>
-              <span className="text-[10px] tracking-tight leading-none text-center font-medium">
+              <span className="text-[9px] tracking-tight leading-none text-center font-medium">
                 {tab.label}
               </span>
               {isActive && (
-                <span className="absolute left-0 top-1/2 -translate-y-1/2 w-1 h-5 bg-amber-400 rounded-r-full" />
+                <span className="absolute left-0 top-1/2 -translate-y-1/2 w-0.5 h-4 bg-amber-400 rounded-r" />
               )}
             </button>
           );
