@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect } from "react";
+import { Link, useNavigate } from "react-router-dom";
 import {
   Sparkles,
   Download,
@@ -119,12 +120,16 @@ export const TopBar: React.FC<TopBarProps> = ({
     <header className="h-12 md:h-14 bg-zinc-950 border-b border-zinc-800 px-3 sm:px-4 flex items-center justify-between select-none z-30 shrink-0 relative">
       {/* Left: Brand + Project Title + Aspect Ratio */}
       <div className="flex items-center gap-2 sm:gap-3 min-w-0">
-        <div className="flex items-center gap-1.5 shrink-0">
-          <Film className="w-4 h-4 text-amber-400" />
+        <Link
+          to="/projects"
+          title="Go to Projects Library"
+          className="flex items-center gap-1.5 shrink-0 hover:opacity-85 transition group"
+        >
+          <Film className="w-4 h-4 text-amber-400 group-hover:scale-105 transition-transform" />
           <span className="text-xs font-semibold text-zinc-200 hidden xs:inline">
             AutoCut
           </span>
-        </div>
+        </Link>
 
         {/* Project Title Input / Display */}
         <div className="flex items-center gap-1.5 min-w-0">
@@ -336,30 +341,42 @@ export const TopBar: React.FC<TopBarProps> = ({
                 <span>AI Quality Check</span>
               </button>
 
-              {currentUser && onOpenPricing && (
-                <button
-                  onClick={() => {
-                    setShowMobileMenu(false);
-                    onOpenPricing();
-                  }}
-                  className="w-full text-left px-3 py-2.5 text-zinc-200 hover:bg-zinc-800 flex items-center gap-2.5"
-                >
-                  <Zap className="w-4 h-4 text-purple-400" />
-                  <span>{currentUser.plan_slug === "free" ? "Upgrade Plan" : "Manage Plan"}</span>
-                </button>
-              )}
+              <Link
+                to="/pricing"
+                onClick={() => setShowMobileMenu(false)}
+                className="w-full text-left px-3 py-2.5 text-zinc-200 hover:bg-zinc-800 flex items-center gap-2.5"
+              >
+                <Zap className="w-4 h-4 text-purple-400" />
+                <span>{currentUser?.plan_slug === "free" ? "Upgrade Plan" : "Pricing & Plans"}</span>
+              </Link>
 
-              {currentUser?.role === "admin" && onOpenAdmin && (
-                <button
-                  onClick={() => {
-                    setShowMobileMenu(false);
-                    onOpenAdmin();
-                  }}
+              <Link
+                to="/account"
+                onClick={() => setShowMobileMenu(false)}
+                className="w-full text-left px-3 py-2.5 text-zinc-200 hover:bg-zinc-800 flex items-center gap-2.5"
+              >
+                <User className="w-4 h-4 text-zinc-400" />
+                <span>Account & Quota</span>
+              </Link>
+
+              <Link
+                to="/help"
+                onClick={() => setShowMobileMenu(false)}
+                className="w-full text-left px-3 py-2.5 text-zinc-200 hover:bg-zinc-800 flex items-center gap-2.5"
+              >
+                <HelpCircle className="w-4 h-4 text-zinc-400" />
+                <span>Help & Guides</span>
+              </Link>
+
+              {currentUser?.role === "admin" && (
+                <Link
+                  to="/admin"
+                  onClick={() => setShowMobileMenu(false)}
                   className="w-full text-left px-3 py-2.5 text-amber-300 hover:bg-amber-950/30 flex items-center gap-2.5"
                 >
                   <Crown className="w-4 h-4 text-amber-400" />
                   <span>Admin Dashboard</span>
-                </button>
+                </Link>
               )}
 
               <button
@@ -426,26 +443,53 @@ export const TopBar: React.FC<TopBarProps> = ({
                   )}
                 </div>
 
-                {/* Upgrade / Pricing */}
-                {onOpenPricing && (
-                  <button
-                    onClick={() => { setShowUserMenu(false); onOpenPricing(); }}
-                    className="w-full text-left px-3 py-2 text-zinc-300 hover:bg-zinc-800 flex items-center gap-2.5"
-                  >
-                    <Zap className="w-4 h-4 text-zinc-500" />
-                    <span>{currentUser.plan_slug === "free" ? "Upgrade Plan" : "Manage Plan"}</span>
-                  </button>
-                )}
+                {/* Route Links */}
+                <Link
+                  to="/projects"
+                  onClick={() => setShowUserMenu(false)}
+                  className="w-full text-left px-3 py-2 text-zinc-300 hover:bg-zinc-800 flex items-center gap-2.5 transition"
+                >
+                  <FolderOpen className="w-4 h-4 text-sky-400" />
+                  <span>My Projects</span>
+                </Link>
+
+                <Link
+                  to="/account"
+                  onClick={() => setShowUserMenu(false)}
+                  className="w-full text-left px-3 py-2 text-zinc-300 hover:bg-zinc-800 flex items-center gap-2.5 transition"
+                >
+                  <User className="w-4 h-4 text-zinc-400" />
+                  <span>Account & Quota</span>
+                </Link>
+
+                <Link
+                  to="/pricing"
+                  onClick={() => setShowUserMenu(false)}
+                  className="w-full text-left px-3 py-2 text-zinc-300 hover:bg-zinc-800 flex items-center gap-2.5 transition"
+                >
+                  <Zap className="w-4 h-4 text-amber-400" />
+                  <span>{currentUser.plan_slug === "free" ? "Upgrade Plan" : "Pricing & Plans"}</span>
+                </Link>
+
+                <Link
+                  to="/help"
+                  onClick={() => setShowUserMenu(false)}
+                  className="w-full text-left px-3 py-2 text-zinc-300 hover:bg-zinc-800 flex items-center gap-2.5 transition"
+                >
+                  <HelpCircle className="w-4 h-4 text-zinc-400" />
+                  <span>Help & Guides</span>
+                </Link>
 
                 {/* Admin panel */}
-                {currentUser.role === "admin" && onOpenAdmin && (
-                  <button
-                    onClick={() => { setShowUserMenu(false); onOpenAdmin(); }}
-                    className="w-full text-left px-3 py-2 text-zinc-300 hover:bg-zinc-800 flex items-center gap-2.5"
+                {currentUser.role === "admin" && (
+                  <Link
+                    to="/admin"
+                    onClick={() => setShowUserMenu(false)}
+                    className="w-full text-left px-3 py-2 text-purple-300 hover:bg-purple-950/40 flex items-center gap-2.5 transition"
                   >
-                    <Crown className="w-4 h-4 text-zinc-500" />
+                    <Crown className="w-4 h-4 text-purple-400" />
                     <span>Admin Dashboard</span>
-                  </button>
+                  </Link>
                 )}
 
                 <div className="h-[1px] bg-zinc-800 my-1" />

@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from "react";
+import { useParams, useNavigate } from "react-router-dom";
 import { TopBar } from "./components/TopBar";
 import { SidebarNav, TabType } from "./components/SidebarNav";
 import { MediaLibrary } from "./components/MediaLibrary";
@@ -55,6 +56,9 @@ import {
 } from "./utils/projectStorage";
 
 export default function App() {
+  const { projectId: routeProjectId } = useParams<{ projectId?: string }>();
+  const navigate = useNavigate();
+
   // Project Settings State
   const [project, setProject] = useState<ProjectSettings>({
     id: "proj_" + Date.now(),
@@ -207,9 +211,12 @@ export default function App() {
         if (cancelled) return;
         setSavedProjects(projects);
         if (projects.length > 0) {
-          const latest = await loadProjectForUser(storageUserId, projects[0].id);
-          if (!cancelled && latest) {
-            applyProjectSnapshot(latest);
+          const targetId = routeProjectId && projects.some((p) => p.id === routeProjectId)
+            ? routeProjectId
+            : projects[0].id;
+          const targetProj = await loadProjectForUser(storageUserId, targetId);
+          if (!cancelled && targetProj) {
+            applyProjectSnapshot(targetProj);
           }
         }
       } catch (error) {
@@ -222,7 +229,7 @@ export default function App() {
       }
     })();
     return () => { cancelled = true; };
-  }, [storageUserId, applyProjectSnapshot]);
+  }, [storageUserId, routeProjectId, applyProjectSnapshot]);
 
   useEffect(() => {
     if (!projectStorageReady || !projectHydrated || !project.autoSave) return;
@@ -1096,6 +1103,7 @@ export default function App() {
       setProjectStorageReady(true);
       setIsProjectLibraryOpen(false);
       setLastSavedText("Project loaded");
+      navigate(`/editor/${projectId}`, { replace: true });
     } catch (error) {
       setProjectNotice(error instanceof Error ? error.message : "Could not open this project.");
     }

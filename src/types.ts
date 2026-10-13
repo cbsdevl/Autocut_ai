@@ -141,6 +141,7 @@ export interface TimelineClip {
     saturation: number; // 0.0 to 2.0, default 1
     temperature: number; // -50 to 50, default 0
     vignette: number; // 0 to 1, default 0
+    sharpen?: number; // 0 to 1, default 0
     lut?: string;
   };
   text?: string; // For T1 text clips

@@ -1,25 +1,41 @@
 import React, { useState } from "react";
-import { Film, Eye, EyeOff, Loader2, Mail, Lock, AlertCircle } from "lucide-react";
+import { Link, useNavigate, useLocation } from "react-router-dom";
+import { Film, Eye, EyeOff, Loader2, Mail, Lock, AlertCircle, ArrowLeft } from "lucide-react";
 import { useAuth } from "../../context/AuthContext";
 
 interface LoginPageProps {
-  onSwitchToRegister: () => void;
+  onSwitchToRegister?: () => void;
 }
 
 export const LoginPage: React.FC<LoginPageProps> = ({ onSwitchToRegister }) => {
-  const { login, error, clearError, isLoading } = useAuth();
+  const { login, error, clearError, isLoading, currentUser } = useAuth();
+  const navigate = useNavigate();
+  const location = useLocation();
+
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+
+  // If user is already authenticated, redirect
+  React.useEffect(() => {
+    if (currentUser) {
+      const from = (location.state as any)?.from?.pathname || "/editor";
+      navigate(from, { replace: true });
+    }
+  }, [currentUser, navigate, location]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     clearError();
     if (!email.trim() || !password) return;
     setSubmitting(true);
-    await login(email.trim().toLowerCase(), password);
+    const success = await login(email.trim().toLowerCase(), password);
     setSubmitting(false);
+    if (success) {
+      const from = (location.state as any)?.from?.pathname || "/editor";
+      navigate(from, { replace: true });
+    }
   };
 
   return (
@@ -31,21 +47,21 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onSwitchToRegister }) => {
       </div>
 
       <div className="relative w-full max-w-md">
-        {/* Logo */}
+        {/* Logo and App Title */}
         <div className="flex items-center justify-center gap-3 mb-8">
-          <div className="w-10 h-10 bg-gradient-to-br from-purple-500 to-blue-600 rounded-xl flex items-center justify-center shadow-lg shadow-purple-500/30">
-            <Film className="w-6 h-6 text-white" />
-          </div>
+          <Link to="/" className="w-10 h-10 bg-gradient-to-br from-amber-400 to-amber-600 rounded-xl flex items-center justify-center shadow-lg shadow-amber-500/20 hover:scale-105 transition-transform">
+            <Film className="w-6 h-6 text-zinc-950" />
+          </Link>
           <div>
             <h1 className="text-xl font-bold text-white leading-none">AutoCut AI</h1>
-            <p className="text-xs text-gray-500">Intelligent Video Editor</p>
+            <p className="text-xs text-zinc-400">Intelligent Video Editor</p>
           </div>
         </div>
 
         {/* Card */}
-        <div className="bg-[#13131a] border border-white/8 rounded-2xl p-8 shadow-2xl">
+        <div className="bg-[#13131a] border border-white/8 rounded-2xl p-8 shadow-2xl backdrop-blur-xl">
           <h2 className="text-2xl font-bold text-white mb-1">Welcome back</h2>
-          <p className="text-gray-400 text-sm mb-6">Sign in to continue editing</p>
+          <p className="text-zinc-400 text-sm mb-6">Sign in to continue editing your videos</p>
 
           {error && (
             <div className="flex items-center gap-2 bg-red-500/10 border border-red-500/30 rounded-lg px-4 py-3 mb-5 text-sm text-red-400">
@@ -56,15 +72,15 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onSwitchToRegister }) => {
 
           <form onSubmit={handleSubmit} className="space-y-4">
             <div>
-              <label className="block text-sm font-medium text-gray-300 mb-1.5">Email</label>
+              <label className="block text-sm font-medium text-zinc-300 mb-1.5">Email</label>
               <div className="relative">
-                <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500" />
+                <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-500" />
                 <input
                   type="email"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   placeholder="you@example.com"
-                  className="w-full bg-[#1a1a24] border border-white/10 rounded-lg pl-10 pr-4 py-2.5 text-white placeholder-gray-600 focus:outline-none focus:border-purple-500 focus:ring-1 focus:ring-purple-500/30 transition-colors text-sm"
+                  className="w-full bg-[#1a1a24] border border-white/10 rounded-lg pl-10 pr-4 py-2.5 text-white placeholder-zinc-600 focus:outline-none focus:border-amber-400 focus:ring-1 focus:ring-amber-400/30 transition-colors text-sm"
                   autoComplete="email"
                   autoFocus
                 />
@@ -72,19 +88,24 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onSwitchToRegister }) => {
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-gray-300 mb-1.5">Password</label>
+              <div className="flex items-center justify-between mb-1.5">
+                <label className="block text-sm font-medium text-zinc-300">Password</label>
+              </div>
               <div className="relative">
-                <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500" />
+                <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-500" />
                 <input
                   type={showPassword ? "text" : "password"}
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   placeholder="Your password"
-                  className="w-full bg-[#1a1a24] border border-white/10 rounded-lg pl-10 pr-10 py-2.5 text-white placeholder-gray-600 focus:outline-none focus:border-purple-500 focus:ring-1 focus:ring-purple-500/30 transition-colors text-sm"
+                  className="w-full bg-[#1a1a24] border border-white/10 rounded-lg pl-10 pr-10 py-2.5 text-white placeholder-zinc-600 focus:outline-none focus:border-amber-400 focus:ring-1 focus:ring-amber-400/30 transition-colors text-sm"
                   autoComplete="current-password"
                 />
-                <button type="button" onClick={() => setShowPassword(!showPassword)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-300 transition-colors">
+                <button
+                  type="button"
+                  onClick={() => setShowPassword(!showPassword)}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-zinc-300 transition-colors"
+                >
                   {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                 </button>
               </div>
@@ -93,22 +114,41 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onSwitchToRegister }) => {
             <button
               type="submit"
               disabled={submitting || isLoading}
-              className="w-full bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-500 hover:to-blue-500 disabled:opacity-50 disabled:cursor-not-allowed text-white font-semibold py-2.5 rounded-lg transition-all duration-200 shadow-lg shadow-purple-600/20 flex items-center justify-center gap-2 mt-2"
+              className="w-full bg-amber-400 hover:bg-amber-300 active:bg-amber-500 disabled:opacity-50 disabled:cursor-not-allowed text-zinc-950 font-semibold py-2.5 rounded-lg transition-all duration-200 shadow-lg shadow-amber-400/20 flex items-center justify-center gap-2 mt-2"
             >
               {submitting ? <><Loader2 className="w-4 h-4 animate-spin" /> Signing in…</> : "Sign In"}
             </button>
           </form>
 
-          <p className="text-center text-sm text-gray-500 mt-6">
+          <p className="text-center text-sm text-zinc-400 mt-6">
             Don't have an account?{" "}
-            <button onClick={onSwitchToRegister} className="text-purple-400 hover:text-purple-300 font-medium transition-colors">
-              Create one free
-            </button>
+            {onSwitchToRegister ? (
+              <button
+                type="button"
+                onClick={onSwitchToRegister}
+                className="text-amber-400 hover:text-amber-300 font-medium transition-colors"
+              >
+                Create one free
+              </button>
+            ) : (
+              <Link
+                to="/register"
+                className="text-amber-400 hover:text-amber-300 font-medium transition-colors"
+              >
+                Create one free
+              </Link>
+            )}
           </p>
+
+          <div className="mt-6 pt-5 border-t border-zinc-800/80 flex items-center justify-center gap-4 text-xs text-zinc-500">
+            <Link to="/pricing" className="hover:text-zinc-300 transition-colors">Pricing</Link>
+            <span>•</span>
+            <Link to="/help" className="hover:text-zinc-300 transition-colors">Help & Guides</Link>
+          </div>
         </div>
 
-        <p className="text-center text-xs text-gray-600 mt-6">
-          © {new Date().getFullYear()} AutoCut AI · All rights reserved
+        <p className="text-center text-xs text-zinc-600 mt-6">
+          © {new Date().getFullYear()} AutoCut AI · Professional Video Editing Platform
         </p>
       </div>
     </div>
