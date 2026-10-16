@@ -14,8 +14,13 @@ import {
   CheckCircle2,
   AlertCircle,
   Layers,
+  CreditCard,
+  LifeBuoy,
+  MessageSquare,
 } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
+import { GooglePayCheckoutModal, CheckoutPlan } from "../components/payments/GooglePayCheckoutModal";
+import { GooglePayMark } from "../components/payments/GooglePayMark";
 
 interface Plan {
   id: number;
@@ -37,6 +42,23 @@ const PLAN_FEATURES: Record<string, string[]> = {
     "Standard subtitle & caption generator",
     "Basic YouTube Content ID audit",
   ],
+  weekly: [
+    "10 AI Auto-cuts per week",
+    "Full 1080p & 4K video exports",
+    "Silence removal & beat sync",
+    "YouTube Content ID pre-check",
+    "Automated chapter markers",
+    "Pay with Google Pay",
+  ],
+  monthly: [
+    "Unlimited AI Auto-cut generations",
+    "Full 4K Ultra HD video exports",
+    "AI Speech silence removal & beat sync",
+    "Deep YouTube Content ID strike pre-check",
+    "Automated chapter markers & SEO package",
+    "Priority cloud rendering queue",
+    "Pay with Google Pay",
+  ],
   pro: [
     "50 AI Auto-cut generations per month",
     "Full 4K Ultra HD video exports",
@@ -44,7 +66,7 @@ const PLAN_FEATURES: Record<string, string[]> = {
     "Deep YouTube Content ID strike pre-check",
     "Automated chapter markers & SEO package",
     "Priority cloud rendering queue",
-    "Commercial rights clearance audit",
+    "Pay with Google Pay",
   ],
   agency: [
     "Unlimited AI Auto-cut video generations",
@@ -52,8 +74,8 @@ const PLAN_FEATURES: Record<string, string[]> = {
     "Multi-project batch export archive",
     "Enterprise Content ID rights scanner",
     "Fastest dedicated render servers",
-    "Custom branding & subtitle presets",
     "Dedicated 24/7 priority support",
+    "Pay with Google Pay",
   ],
 };
 
@@ -84,6 +106,7 @@ export const PricingPage: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [upgradingSlug, setUpgradingSlug] = useState<string | null>(null);
   const [feedback, setFeedback] = useState<{ type: "success" | "error"; text: string } | null>(null);
+  const [gpayCheckoutPlan, setGpayCheckoutPlan] = useState<CheckoutPlan | null>(null);
 
   useEffect(() => {
     fetch("/api/plans", { credentials: "include" })
@@ -96,6 +119,14 @@ export const PricingPage: React.FC = () => {
         setLoading(false);
       });
   }, []);
+
+  const handleOpenGooglePay = (plan: Plan) => {
+    if (!currentUser) {
+      navigate(`/login?redirect=/pricing`);
+      return;
+    }
+    setGpayCheckoutPlan(plan);
+  };
 
   const handleUpgrade = async (planSlug: string) => {
     if (!currentUser) {
@@ -320,27 +351,34 @@ export const PricingPage: React.FC = () => {
                         Free Forever
                       </button>
                     ) : (
-                      <button
-                        onClick={() => handleUpgrade(plan.slug)}
-                        disabled={upgradingSlug !== null}
-                        className={`w-full py-2.5 rounded-xl text-xs sm:text-sm font-bold transition flex items-center justify-center gap-2 ${
-                          isPro
-                            ? "bg-amber-400 hover:bg-amber-300 text-zinc-950 shadow-lg shadow-amber-400/20"
-                            : "bg-zinc-800 hover:bg-zinc-700 text-white border border-zinc-700"
-                        }`}
-                      >
-                        {upgradingSlug === plan.slug ? (
-                          <>
-                            <Loader2 className="w-4 h-4 animate-spin" />
-                            Upgrading…
-                          </>
-                        ) : (
-                          <>
-                            <Zap className="w-4 h-4" />
-                            Upgrade to {plan.name}
-                          </>
-                        )}
-                      </button>
+                      <div className="space-y-2">
+                        {/* Primary Google Pay Button */}
+                        <button
+                          onClick={() => handleOpenGooglePay(plan)}
+                          className="w-full py-2.5 px-3 rounded-xl text-xs sm:text-sm font-bold bg-white hover:bg-zinc-100 text-zinc-950 transition flex items-center justify-center gap-2 shadow-lg shadow-white/10 cursor-pointer"
+                        >
+                          <span className="font-semibold text-zinc-900">Buy with</span>
+                          <GooglePayMark height={20} theme="light" />
+                        </button>
+
+                        <button
+                          onClick={() => handleUpgrade(plan.slug)}
+                          disabled={upgradingSlug !== null}
+                          className="w-full py-1.5 rounded-lg text-xs font-medium text-zinc-400 hover:text-white bg-zinc-950/60 hover:bg-zinc-800 border border-zinc-800 transition flex items-center justify-center gap-1.5"
+                        >
+                          {upgradingSlug === plan.slug ? (
+                            <>
+                              <Loader2 className="w-3 h-3 animate-spin" />
+                              Upgrading…
+                            </>
+                          ) : (
+                            <>
+                              <Zap className="w-3 h-3 text-amber-400" />
+                              Quick Upgrade
+                            </>
+                          )}
+                        </button>
+                      </div>
                     )}
                   </div>
                 </div>
@@ -348,6 +386,19 @@ export const PricingPage: React.FC = () => {
             })}
           </div>
         )}
+
+        {/* Google Pay Checkout Modal */}
+        <GooglePayCheckoutModal
+          isOpen={gpayCheckoutPlan !== null}
+          plan={gpayCheckoutPlan}
+          onClose={() => setGpayCheckoutPlan(null)}
+          onPaymentComplete={(transaction) => {
+            setFeedback({
+              type: "success",
+              text: `Payment confirmed via Google Pay! You are now subscribed to ${transaction.plan}.`,
+            });
+          }}
+        />
 
         {/* FAQ Section */}
         <div className="max-w-3xl mx-auto border-t border-zinc-800 pt-14">
@@ -366,6 +417,29 @@ export const PricingPage: React.FC = () => {
                 </p>
               </div>
             ))}
+          </div>
+
+          {/* Customer Support Callout */}
+          <div className="mt-8 p-6 bg-gradient-to-r from-zinc-900/90 via-zinc-900/60 to-zinc-900/90 border border-zinc-800 rounded-2xl flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <div className="flex items-start gap-3.5">
+              <div className="w-10 h-10 rounded-xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-emerald-400 shrink-0">
+                <LifeBuoy className="w-5 h-5" />
+              </div>
+              <div>
+                <h4 className="text-sm font-bold text-white">Have questions about Google Pay billing or team quotas?</h4>
+                <p className="text-xs text-zinc-400 mt-0.5 leading-relaxed">
+                  Our customer support team is available 24/7 to help verify payment receipts, upgrade workspaces, or assist with enterprise onboarding.
+                </p>
+              </div>
+            </div>
+
+            <Link
+              to="/support?category=billing"
+              className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-amber-400 hover:bg-amber-300 text-zinc-950 font-bold text-xs transition shadow-md shadow-amber-400/10 shrink-0"
+            >
+              <MessageSquare className="w-3.5 h-3.5" />
+              <span>Contact Support</span>
+            </Link>
           </div>
         </div>
       </main>

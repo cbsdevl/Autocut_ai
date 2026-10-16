@@ -1,8 +1,10 @@
 import React, { useEffect, useMemo, useState, useCallback } from "react";
+import { Link } from "react-router-dom";
 import {
   Activity, ArrowLeft, BarChart3, CalendarDays, Check, ChevronDown,
   CreditCard, DollarSign, Edit3, Loader2, RefreshCw, Save, Search,
-  Shield, Trash2, Users, AlertCircle, Crown
+  Shield, Trash2, Users, AlertCircle, Crown, ExternalLink,
+  LifeBuoy, MessageSquare, Send, Tag, Clock
 } from "lucide-react";
 
 interface AdminUser {
@@ -32,7 +34,7 @@ interface PlanAdmin {
   updated_at: string;
 }
 
-type AdminTab = "overview" | "users" | "plans";
+type AdminTab = "overview" | "users" | "plans" | "payments" | "support";
 
 interface AdminDashboardProps {
   onClose: () => void;
@@ -42,6 +44,15 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onClose }) => {
   const [tab, setTab] = useState<AdminTab>("overview");
   const [users, setUsers] = useState<AdminUser[]>([]);
   const [plans, setPlans] = useState<PlanAdmin[]>([]);
+  const [payments, setPayments] = useState<any[]>([]);
+  const [paymentStats, setPaymentStats] = useState<{ totalRevenue: number; totalTransactions: number } | null>(null);
+  const [supportTickets, setSupportTickets] = useState<any[]>([]);
+  const [supportStats, setSupportStats] = useState<{ total: number; open: number; inProgress: number; resolved: number } | null>(null);
+  const [selectedAdminTicket, setSelectedAdminTicket] = useState<any | null>(null);
+  const [adminTicketMessages, setAdminTicketMessages] = useState<any[]>([]);
+  const [adminReplyText, setAdminReplyText] = useState("");
+  const [adminTicketFilter, setAdminTicketFilter] = useState("all");
+  const [loadingTicketThread, setLoadingTicketThread] = useState(false);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [userSearch, setUserSearch] = useState("");
@@ -69,12 +80,98 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onClose }) => {
     setPlans(d.plans || []);
   }, []);
 
+  const loadPayments = useCallback(async () => {
+    try {
+      const res = await fetch("/api/admin/payments", { credentials: "include" });
+      if (res.ok) {
+        const d = await res.json();
+        setPayments(d.payments || []);
+        setPaymentStats(d.stats || null);
+      }
+    } catch {
+      // non-fatal
+    }
+  }, []);
+
+  const loadSupportTickets = useCallback(async (statusFilter = adminTicketFilter) => {
+    try {
+      const url = statusFilter && statusFilter !== "all"
+        ? `/api/admin/support/tickets?status=${statusFilter}`
+        : `/api/admin/support/tickets`;
+      const res = await fetch(url, { credentials: "include" });
+      if (res.ok) {
+        const d = await res.json();
+        setSupportTickets(d.tickets || []);
+        setSupportStats(d.stats || null);
+      }
+    } catch {
+      // non-fatal
+    }
+  }, [adminTicketFilter]);
+
+  const loadAdminTicketMessages = async (ticket: any) => {
+    setSelectedAdminTicket(ticket);
+    setLoadingTicketThread(true);
+    try {
+      const res = await fetch(`/api/support/tickets/${ticket.id}`, { credentials: "include" });
+      if (res.ok) {
+        const d = await res.json();
+        setAdminTicketMessages(d.messages || []);
+      }
+    } catch {
+      // non-fatal
+    } finally {
+      setLoadingTicketThread(false);
+    }
+  };
+
+  const handleUpdateTicketStatus = async (ticketId: number, status: string, priority?: string) => {
+    try {
+      const res = await fetch(`/api/admin/support/tickets/${ticketId}/status`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ status, priority }),
+      });
+      if (res.ok) {
+        flash("success", "Ticket status updated.");
+        loadSupportTickets();
+        if (selectedAdminTicket?.id === ticketId) {
+          setSelectedAdminTicket((prev: any) => ({ ...prev, status }));
+        }
+      }
+    } catch {
+      flash("error", "Failed to update ticket status.");
+    }
+  };
+
+  const handleAdminReply = async () => {
+    if (!selectedAdminTicket || !adminReplyText.trim()) return;
+    try {
+      const res = await fetch(`/api/support/tickets/${selectedAdminTicket.id}/messages`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ message: adminReplyText.trim() }),
+      });
+      if (res.ok) {
+        const d = await res.json();
+        setAdminTicketMessages((prev) => [...prev, d.message]);
+        setAdminReplyText("");
+        flash("success", "Reply sent to customer.");
+        loadSupportTickets();
+      }
+    } catch {
+      flash("error", "Failed to send reply.");
+    }
+  };
+
   useEffect(() => {
     setLoading(true);
-    Promise.all([loadUsers(), loadPlans()])
+    Promise.all([loadUsers(), loadPlans(), loadPayments(), loadSupportTickets()])
       .catch((error: unknown) => setLoadError(error instanceof Error ? error.message : "Could not load admin data."))
       .finally(() => setLoading(false));
-  }, [loadUsers, loadPlans]);
+  }, [loadUsers, loadPlans, loadPayments, loadSupportTickets]);
 
   // ── User Actions ──────────────────────────────────────────
 
@@ -186,15 +283,15 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onClose }) => {
 
         {/* Tabs */}
         <div className="flex gap-1 p-2 border-b border-white/8 bg-black/20">
-          {(["overview", "users", "plans"] as AdminTab[]).map((t) => (
+          {(["overview", "users", "plans", "payments", "support"] as AdminTab[]).map((t) => (
             <button key={t} onClick={() => setTab(t)}
               className={`flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-colors capitalize
                 ${tab === t ? "bg-white/10 text-white" : "text-gray-400 hover:text-white hover:bg-white/5"}`}>
-              {t === "overview" ? <BarChart3 className="w-4 h-4" /> : t === "users" ? <Users className="w-4 h-4" /> : <CreditCard className="w-4 h-4" />}
-              {t}
+              {t === "overview" ? <BarChart3 className="w-4 h-4" /> : t === "users" ? <Users className="w-4 h-4" /> : t === "plans" ? <CreditCard className="w-4 h-4" /> : t === "payments" ? <DollarSign className="w-4 h-4 text-emerald-400" /> : <LifeBuoy className="w-4 h-4 text-sky-400" />}
+              {t === "payments" ? "Google Pay & Revenue" : t === "support" ? `Customer Support (${supportStats?.open ?? 0})` : t}
             </button>
           ))}
-          <button onClick={() => { loadUsers(); loadPlans(); }}
+          <button onClick={() => { loadUsers(); loadPlans(); loadPayments(); loadSupportTickets(); }}
             className="ml-auto flex items-center gap-2 px-3 py-2 rounded-lg text-sm text-gray-400 hover:text-white hover:bg-white/5 transition-colors">
             <RefreshCw className="w-3.5 h-3.5" /> Refresh
           </button>
@@ -427,7 +524,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onClose }) => {
                   )}
                 </div>
               </div>
-            ) : (
+            ) : tab === "plans" ? (
 
               /* ────────── PLANS TAB ────────── */
               <div>
@@ -517,7 +614,325 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onClose }) => {
                   })}
                 </div>
               </div>
-            )
+            ) : tab === "payments" ? (
+              <div className="space-y-6">
+                {/* Stats Cards */}
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  <div className="border border-white/8 bg-[#11171e] p-4 sm:p-5">
+                    <span className="text-xs text-gray-400 block mb-1">Total Revenue</span>
+                    <span className="text-2xl font-bold text-emerald-400">
+                      ${paymentStats?.totalRevenue ? paymentStats.totalRevenue.toFixed(2) : "0.00"}
+                    </span>
+                    <span className="text-[11px] text-gray-500 block mt-1">Processed via Google Pay</span>
+                  </div>
+
+                  <div className="border border-white/8 bg-[#11171e] p-4 sm:p-5">
+                    <span className="text-xs text-gray-400 block mb-1">Completed Transactions</span>
+                    <span className="text-2xl font-bold text-white">
+                      {paymentStats?.totalTransactions ?? payments.length}
+                    </span>
+                    <span className="text-[11px] text-gray-500 block mt-1">Successful authorizations</span>
+                  </div>
+
+                  <div className="border border-white/8 bg-[#11171e] p-4 sm:p-5">
+                    <span className="text-xs text-gray-400 block mb-1">Payment Method</span>
+                    <span className="text-2xl font-bold text-amber-400">Google Pay</span>
+                    <span className="text-[11px] text-gray-500 block mt-1">Tokenized Web API</span>
+                  </div>
+                </div>
+
+                {/* Google Pay Status & Setup Banner */}
+                <div className="border border-white/8 bg-[#11171e] p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                  <div className="flex items-start sm:items-center gap-3">
+                    <div className="w-8 h-8 rounded-lg bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-emerald-400 shrink-0 mt-0.5 sm:mt-0">
+                      <CreditCard className="w-4 h-4" />
+                    </div>
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm font-semibold text-white">Google Pay API Integration</span>
+                        <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-400/10 text-amber-400 border border-amber-400/30">
+                          SANDBOX (TEST MODE)
+                        </span>
+                      </div>
+                      <p className="text-xs text-gray-400 mt-0.5">
+                        Tokenized transactions and test cards enabled. To accept real customer payments, link your merchant ID in the Google Pay Console.
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-2 shrink-0">
+                    <Link
+                      to="/gpay-buyflow"
+                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-400 hover:bg-amber-300 text-xs font-bold text-zinc-950 transition"
+                    >
+                      <span>Buyflow Screenshot Kit</span>
+                      <ExternalLink className="w-3.5 h-3.5" />
+                    </Link>
+
+                    <a
+                      href="https://pay.google.com/business/console"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 border border-white/10 text-xs font-medium text-gray-200 transition"
+                    >
+                      <span>Google Pay Console</span>
+                      <ExternalLink className="w-3.5 h-3.5 text-gray-400" />
+                    </a>
+                  </div>
+                </div>
+
+                {/* Payments Table */}
+                <div className="border border-white/8 bg-[#11171e] overflow-hidden">
+                  <div className="p-4 border-b border-white/8 flex items-center justify-between">
+                    <h3 className="font-semibold text-white text-sm">Google Pay Transaction Records</h3>
+                    <span className="text-xs text-gray-400">{payments.length} total</span>
+                  </div>
+
+                  {payments.length === 0 ? (
+                    <div className="p-8 text-center text-sm text-gray-500">
+                      No Google Pay transactions recorded yet.
+                    </div>
+                  ) : (
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-left text-xs">
+                        <thead className="bg-black/30 border-b border-white/8 text-gray-400">
+                          <tr>
+                            <th className="py-2.5 px-4 font-medium">Customer</th>
+                            <th className="py-2.5 px-4 font-medium">Plan</th>
+                            <th className="py-2.5 px-4 font-medium">Amount</th>
+                            <th className="py-2.5 px-4 font-medium">Payment Method</th>
+                            <th className="py-2.5 px-4 font-medium">Transaction ID</th>
+                            <th className="py-2.5 px-4 font-medium">Date</th>
+                            <th className="py-2.5 px-4 font-medium">Status</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-white/5">
+                          {payments.map((p) => (
+                            <tr key={p.id} className="hover:bg-white/[0.02]">
+                              <td className="py-3 px-4">
+                                <div className="font-medium text-white">{p.user_name || "User"}</div>
+                                <div className="text-[11px] text-gray-500">{p.user_email || `ID: ${p.user_id}`}</div>
+                              </td>
+                              <td className="py-3 px-4 font-semibold text-white">
+                                {p.plan_name}
+                              </td>
+                              <td className="py-3 px-4 font-bold text-emerald-400">
+                                ${p.amount.toFixed(2)} {p.currency}
+                              </td>
+                              <td className="py-3 px-4 text-gray-300">
+                                Google Pay ({p.card_network || "CARD"} •••• {p.card_last4 || "4242"})
+                              </td>
+                              <td className="py-3 px-4 font-mono text-gray-400 text-[11px]">
+                                {p.transaction_id}
+                              </td>
+                              <td className="py-3 px-4 text-gray-400">
+                                {new Date(p.created_at).toLocaleDateString()}
+                              </td>
+                              <td className="py-3 px-4">
+                                <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/10 text-emerald-400 border border-emerald-500/30">
+                                  {p.status.toUpperCase()}
+                                </span>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+              </div>
+            ) : tab === "support" ? (
+              <div className="space-y-6">
+                {/* Metric Cards */}
+                <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
+                  <div className="border border-white/8 bg-[#11171e] p-4">
+                    <span className="text-xs text-amber-400 block mb-1">Open Tickets</span>
+                    <span className="text-2xl font-bold text-white">{supportStats?.open ?? 0}</span>
+                    <span className="text-[10px] text-gray-500 block mt-1">Awaiting first response</span>
+                  </div>
+                  <div className="border border-white/8 bg-[#11171e] p-4">
+                    <span className="text-xs text-sky-400 block mb-1">In Progress</span>
+                    <span className="text-2xl font-bold text-white">{supportStats?.inProgress ?? 0}</span>
+                    <span className="text-[10px] text-gray-500 block mt-1">Active customer threads</span>
+                  </div>
+                  <div className="border border-white/8 bg-[#11171e] p-4">
+                    <span className="text-xs text-emerald-400 block mb-1">Resolved</span>
+                    <span className="text-2xl font-bold text-white">{supportStats?.resolved ?? 0}</span>
+                    <span className="text-[10px] text-gray-500 block mt-1">Completed inquiries</span>
+                  </div>
+                  <div className="border border-white/8 bg-[#11171e] p-4">
+                    <span className="text-xs text-gray-400 block mb-1">Total Received</span>
+                    <span className="text-2xl font-bold text-white">{supportStats?.total ?? 0}</span>
+                    <span className="text-[10px] text-gray-500 block mt-1">All time</span>
+                  </div>
+                </div>
+
+                {/* Filter and Content Grid */}
+                <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                  {/* Left: Tickets List */}
+                  <div className="lg:col-span-1 space-y-3">
+                    <div className="flex items-center justify-between">
+                      <h3 className="text-sm font-semibold text-white">Tickets</h3>
+                      <select
+                        value={adminTicketFilter}
+                        onChange={(e) => {
+                          setAdminTicketFilter(e.target.value);
+                          loadSupportTickets(e.target.value);
+                        }}
+                        className="bg-[#1a1a24] border border-white/10 rounded-lg px-2.5 py-1 text-xs text-white"
+                      >
+                        <option value="all">All Statuses</option>
+                        <option value="open">Open</option>
+                        <option value="in_progress">In Progress</option>
+                        <option value="resolved">Resolved</option>
+                        <option value="closed">Closed</option>
+                      </select>
+                    </div>
+
+                    <div className="space-y-2 max-h-[500px] overflow-y-auto pr-1">
+                      {supportTickets.length === 0 ? (
+                        <div className="p-6 text-center text-xs text-gray-500 border border-white/8 bg-[#11171e] rounded-xl">
+                          No tickets found with this status.
+                        </div>
+                      ) : (
+                        supportTickets.map((t) => {
+                          const isSelected = selectedAdminTicket?.id === t.id;
+                          return (
+                            <div
+                              key={t.id}
+                              onClick={() => loadAdminTicketMessages(t)}
+                              className={`p-3 rounded-xl border text-xs cursor-pointer transition ${
+                                isSelected
+                                  ? "bg-white/10 border-sky-400/50"
+                                  : "border-white/8 bg-[#11171e] hover:bg-white/5"
+                              }`}
+                            >
+                              <div className="flex items-center justify-between mb-1 text-[10px]">
+                                <span className="font-mono text-gray-400">{t.ticket_number}</span>
+                                <span
+                                  className={`px-1.5 py-0.5 rounded text-[9px] font-bold uppercase ${
+                                    t.status === "open"
+                                      ? "bg-amber-400/10 text-amber-400"
+                                      : t.status === "in_progress"
+                                      ? "bg-sky-400/10 text-sky-400"
+                                      : "bg-emerald-400/10 text-emerald-400"
+                                  }`}
+                                >
+                                  {t.status.replace("_", " ")}
+                                </span>
+                              </div>
+                              <h4 className="font-bold text-white text-xs line-clamp-1 mb-1">{t.subject}</h4>
+                              <div className="flex items-center justify-between text-[11px] text-gray-400">
+                                <span className="truncate max-w-[120px]">{t.user_name}</span>
+                                <span className="text-[10px] text-gray-500 capitalize">{t.category}</span>
+                              </div>
+                            </div>
+                          );
+                        })
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Right: Conversation Thread & Actions */}
+                  <div className="lg:col-span-2 border border-white/8 bg-[#11171e] rounded-xl flex flex-col min-h-[500px] overflow-hidden">
+                    {selectedAdminTicket ? (
+                      <>
+                        <div className="p-4 border-b border-white/8 bg-black/20 flex flex-wrap items-center justify-between gap-3">
+                          <div>
+                            <div className="flex items-center gap-2 mb-1">
+                              <span className="font-mono text-xs text-sky-400">{selectedAdminTicket.ticket_number}</span>
+                              <span className="text-xs text-gray-400">· {selectedAdminTicket.user_name} ({selectedAdminTicket.user_email})</span>
+                              <span className="px-1.5 py-0.5 rounded text-[10px] font-mono bg-white/5 text-gray-300">
+                                {selectedAdminTicket.plan_tier} Tier
+                              </span>
+                            </div>
+                            <h3 className="text-sm font-bold text-white">{selectedAdminTicket.subject}</h3>
+                          </div>
+
+                          <div className="flex items-center gap-2">
+                            <select
+                              value={selectedAdminTicket.status}
+                              onChange={(e) => handleUpdateTicketStatus(selectedAdminTicket.id, e.target.value)}
+                              className="bg-[#1a1a24] border border-white/10 rounded-lg px-2.5 py-1 text-xs text-white"
+                            >
+                              <option value="open">Open</option>
+                              <option value="in_progress">In Progress</option>
+                              <option value="resolved">Resolved</option>
+                              <option value="closed">Closed</option>
+                            </select>
+                          </div>
+                        </div>
+
+                        {/* Thread Messages */}
+                        <div className="flex-1 p-4 space-y-3 overflow-y-auto max-h-[380px]">
+                          {loadingTicketThread ? (
+                            <div className="py-12 flex justify-center text-gray-400">
+                              <Loader2 className="w-6 h-6 animate-spin text-purple-400" />
+                            </div>
+                          ) : (
+                            adminTicketMessages.map((m) => {
+                              const isAdmin = m.sender_role === "admin";
+                              return (
+                                <div
+                                  key={m.id}
+                                  className={`p-3.5 rounded-xl text-xs ${
+                                    isAdmin
+                                      ? "bg-purple-500/10 border border-purple-500/20 text-gray-200 ml-6"
+                                      : "bg-white/5 border border-white/10 text-gray-200 mr-6"
+                                  }`}
+                                >
+                                  <div className="flex items-center justify-between mb-1.5 text-[11px]">
+                                    <span className="font-bold flex items-center gap-1.5">
+                                      {isAdmin ? (
+                                        <span className="text-purple-400">Support Agent (You)</span>
+                                      ) : (
+                                        <span className="text-white">{m.sender_name} (Customer)</span>
+                                      )}
+                                    </span>
+                                    <span className="text-gray-500 font-mono text-[10px]">
+                                      {new Date(m.created_at).toLocaleString()}
+                                    </span>
+                                  </div>
+                                  <p className="whitespace-pre-wrap leading-relaxed text-gray-300">{m.message}</p>
+                                </div>
+                              );
+                            })
+                          )}
+                        </div>
+
+                        {/* Admin Reply Box */}
+                        <div className="p-3 border-t border-white/8 bg-black/30 flex items-center gap-2">
+                          <input
+                            type="text"
+                            value={adminReplyText}
+                            onChange={(e) => setAdminReplyText(e.target.value)}
+                            onKeyDown={(e) => e.key === "Enter" && handleAdminReply()}
+                            placeholder="Type a response to this customer…"
+                            className="flex-1 bg-[#0a0a0f] border border-white/10 rounded-xl px-3.5 py-2 text-xs text-white placeholder:text-gray-600 focus:outline-none focus:border-purple-500"
+                          />
+                          <button
+                            onClick={handleAdminReply}
+                            disabled={!adminReplyText.trim()}
+                            className="px-4 py-2 rounded-xl bg-purple-600 hover:bg-purple-500 text-white font-bold text-xs transition flex items-center gap-1.5 disabled:opacity-50"
+                          >
+                            <Send className="w-3.5 h-3.5" />
+                            <span>Reply</span>
+                          </button>
+                        </div>
+                      </>
+                    ) : (
+                      <div className="flex-1 flex flex-col items-center justify-center p-8 text-center text-gray-500">
+                        <LifeBuoy className="w-10 h-10 mb-2 text-gray-700" />
+                        <p className="text-sm font-semibold text-gray-400">Select a support ticket</p>
+                        <p className="text-xs text-gray-500 mt-1">
+                          Click any ticket on the left to review inquiry details, reply to customers, or update status.
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            ) : null
           )}
         </div>
       </div>

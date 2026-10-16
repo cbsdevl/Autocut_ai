@@ -25,6 +25,8 @@ import {
   User,
   Upload,
   Archive,
+  LifeBuoy,
+  Home,
 } from "lucide-react";
 import { AspectRatio, MediaItem, ProjectSettings } from "../types";
 import { useAuth } from "../context/AuthContext";
@@ -351,6 +353,15 @@ export const TopBar: React.FC<TopBarProps> = ({
               </Link>
 
               <Link
+                to="/"
+                onClick={() => setShowMobileMenu(false)}
+                className="w-full text-left px-3 py-2.5 text-zinc-200 hover:bg-zinc-800 flex items-center gap-2.5"
+              >
+                <Home className="w-4 h-4 text-zinc-400" />
+                <span>Product Overview</span>
+              </Link>
+
+              <Link
                 to="/account"
                 onClick={() => setShowMobileMenu(false)}
                 className="w-full text-left px-3 py-2.5 text-zinc-200 hover:bg-zinc-800 flex items-center gap-2.5"
@@ -366,6 +377,15 @@ export const TopBar: React.FC<TopBarProps> = ({
               >
                 <HelpCircle className="w-4 h-4 text-zinc-400" />
                 <span>Help & Guides</span>
+              </Link>
+
+              <Link
+                to="/support"
+                onClick={() => setShowMobileMenu(false)}
+                className="w-full text-left px-3 py-2.5 text-zinc-200 hover:bg-zinc-800 flex items-center gap-2.5"
+              >
+                <LifeBuoy className="w-4 h-4 text-emerald-400" />
+                <span>Customer Support</span>
               </Link>
 
               {currentUser?.role === "admin" && (
@@ -454,6 +474,15 @@ export const TopBar: React.FC<TopBarProps> = ({
                 </Link>
 
                 <Link
+                  to="/"
+                  onClick={() => setShowUserMenu(false)}
+                  className="w-full text-left px-3 py-2 text-zinc-300 hover:bg-zinc-800 flex items-center gap-2.5 transition"
+                >
+                  <Home className="w-4 h-4 text-zinc-400" />
+                  <span>Product Overview</span>
+                </Link>
+
+                <Link
                   to="/account"
                   onClick={() => setShowUserMenu(false)}
                   className="w-full text-left px-3 py-2 text-zinc-300 hover:bg-zinc-800 flex items-center gap-2.5 transition"
@@ -478,6 +507,15 @@ export const TopBar: React.FC<TopBarProps> = ({
                 >
                   <HelpCircle className="w-4 h-4 text-zinc-400" />
                   <span>Help & Guides</span>
+                </Link>
+
+                <Link
+                  to="/support"
+                  onClick={() => setShowUserMenu(false)}
+                  className="w-full text-left px-3 py-2 text-zinc-300 hover:bg-zinc-800 flex items-center gap-2.5 transition"
+                >
+                  <LifeBuoy className="w-4 h-4 text-emerald-400" />
+                  <span>Customer Support</span>
                 </Link>
 
                 {/* Admin panel */}

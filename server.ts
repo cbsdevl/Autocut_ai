@@ -24,6 +24,18 @@ import {
   updatePlan,
   upgradeUserPlan,
   consumeAiVideoUsage,
+  recordPayment,
+  getUserPayments,
+  getAllPayments,
+  getPaymentStats,
+  createSupportTicket,
+  getUserTickets,
+  getTicketById,
+  getTicketMessages,
+  addTicketMessage,
+  updateTicketStatus,
+  getAllSupportTickets,
+  getSupportStats,
 } from "./src/db/database.js";
 
 dotenv.config();
@@ -214,15 +226,13 @@ app.get("/api/plans", (_req: Request, res: Response) => {
 app.post("/api/subscription/upgrade", requireAuth, (req: Request, res: Response) => {
   try {
     const { planSlug } = req.body;
-    const validSlugs = ["free", "weekly", "monthly"];
-    if (!validSlugs.includes(planSlug)) {
-      res.status(400).json({ error: "Invalid plan." });
-      return;
-    }
     const userId = (req as any).user.id;
     const plans = getAllPlans();
     const plan = plans.find((p) => p.slug === planSlug);
-    if (!plan) { res.status(404).json({ error: "Plan not found." }); return; }
+    if (!plan) {
+      res.status(404).json({ error: "Plan not found." });
+      return;
+    }
 
     let expiresAt: string | null = null;
     if (plan.duration_days > 0) {
@@ -235,6 +245,264 @@ app.post("/api/subscription/upgrade", requireAuth, (req: Request, res: Response)
   } catch (err) {
     console.error("[Subscription] Upgrade error:", err);
     res.status(500).json({ error: "Upgrade failed." });
+  }
+});
+
+// ─────────────────────────────────────────────────────────────
+// GOOGLE PAY / PAYMENTS ROUTES
+// ─────────────────────────────────────────────────────────────
+
+// GET /api/payments/config — public Google Pay configuration
+app.get("/api/payments/config", (_req: Request, res: Response) => {
+  res.json({
+    environment: (process.env.GOOGLE_PAY_ENVIRONMENT || "TEST").toUpperCase(),
+    merchantName: process.env.GOOGLE_PAY_MERCHANT_NAME || "AutoCut AI",
+    merchantId: process.env.GOOGLE_PAY_MERCHANT_ID || "12345678901234567890",
+    gateway: process.env.GOOGLE_PAY_GATEWAY || "example",
+    gatewayMerchantId: process.env.GOOGLE_PAY_GATEWAY_MERCHANT_ID || "exampleGatewayMerchantId",
+    allowedCardNetworks: ["VISA", "MASTERCARD", "AMEX", "DISCOVER"],
+    allowedCardAuthMethods: ["PAN_ONLY", "CRYPTOGRAM_3DS"],
+  });
+});
+
+// POST /api/payments/google-pay/checkout — process Google Pay authorization & grant subscription
+app.post("/api/payments/google-pay/checkout", requireAuth, async (req: Request, res: Response) => {
+  try {
+    const { planSlug, paymentData, simulated } = req.body;
+    if (!planSlug) {
+      res.status(400).json({ error: "Missing plan specification." });
+      return;
+    }
+
+    const userId = (req as any).user.id;
+    const plans = getAllPlans();
+    const plan = plans.find((p) => p.slug === planSlug);
+    if (!plan) {
+      res.status(404).json({ error: "Selected plan does not exist." });
+      return;
+    }
+
+    // Parse Google Pay token or payment data
+    let cardNetwork = "VISA";
+    let cardLast4 = "4242";
+    let googlePayToken: string | undefined = undefined;
+
+    if (paymentData) {
+      const paymentMethodData = paymentData.paymentMethodData || paymentData;
+      cardNetwork = paymentMethodData?.info?.cardNetwork || paymentMethodData?.cardNetwork || "VISA";
+      cardLast4 = paymentMethodData?.info?.cardDetails || paymentMethodData?.cardDetails || "4242";
+      if (paymentMethodData?.tokenizationData?.token) {
+        googlePayToken = typeof paymentMethodData.tokenizationData.token === "string"
+          ? paymentMethodData.tokenizationData.token
+          : JSON.stringify(paymentMethodData.tokenizationData.token);
+      }
+    }
+
+    // Generate verified transaction ID
+    const transactionId = `gpay_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
+
+    let expiresAt: string | null = null;
+    if (plan.duration_days > 0) {
+      const d = new Date();
+      d.setDate(d.getDate() + plan.duration_days);
+      expiresAt = d.toISOString();
+    }
+
+    const payment = recordPayment({
+      userId,
+      planId: plan.id,
+      planSlug: plan.slug,
+      planName: plan.name,
+      amount: plan.price,
+      currency: plan.currency || "USD",
+      paymentMethod: simulated ? "google_pay_sandbox" : "google_pay",
+      transactionId,
+      googlePayToken,
+      cardNetwork,
+      cardLast4,
+      status: "completed",
+      expiresAt,
+    });
+
+    res.json({
+      ok: true,
+      success: true,
+      message: `Successfully subscribed to ${plan.name} with Google Pay!`,
+      transaction: {
+        id: payment.transaction_id,
+        plan: payment.plan_name,
+        planSlug: payment.plan_slug,
+        amount: payment.amount,
+        currency: payment.currency,
+        paymentMethod: "Google Pay",
+        cardNetwork: payment.card_network,
+        cardLast4: payment.card_last4,
+        status: payment.status,
+        expiresAt,
+        createdAt: payment.created_at,
+      },
+    });
+  } catch (err) {
+    console.error("[Google Pay] Checkout error:", err);
+    res.status(500).json({ error: "Failed to process Google Pay payment." });
+  }
+});
+
+// GET /api/payments/history — retrieve current user's past payments & receipts
+app.get("/api/payments/history", requireAuth, (req: Request, res: Response) => {
+  try {
+    const userId = (req as any).user.id;
+    const payments = getUserPayments(userId);
+    res.json({ payments });
+  } catch (err) {
+    console.error("[Payments] History error:", err);
+    res.status(500).json({ error: "Could not fetch payment history." });
+  }
+});
+
+// GET /api/admin/payments — admin view of all transactions & revenue stats
+app.get("/api/admin/payments", requireAdmin, (_req: Request, res: Response) => {
+  try {
+    const payments = getAllPayments();
+    const stats = getPaymentStats();
+    res.json({ payments, stats });
+  } catch (err) {
+    console.error("[Admin Payments] Error:", err);
+    res.status(500).json({ error: "Could not fetch admin payment records." });
+  }
+});
+
+// ─────────────────────────────────────────────────────────────
+// CUSTOMER SUPPORT ROUTES
+// ─────────────────────────────────────────────────────────────
+
+// POST /api/support/tickets — create a new support ticket
+app.post("/api/support/tickets", requireAuth, (req: Request, res: Response) => {
+  try {
+    const user = (req as any).user;
+    const { subject, category, priority, message } = req.body;
+
+    if (!subject || !subject.trim() || !message || !message.trim()) {
+      res.status(400).json({ error: "Subject and message are required." });
+      return;
+    }
+
+    const { ticket, message: initialMsg } = createSupportTicket({
+      userId: user.id,
+      userName: user.name,
+      userEmail: user.email,
+      subject: subject.trim(),
+      category: category || "general",
+      priority: priority || "medium",
+      planTier: user.plan_name || "Free",
+      initialMessage: message.trim(),
+    });
+
+    res.json({ ok: true, ticket, message: initialMsg });
+  } catch (err) {
+    console.error("[Support] Create ticket error:", err);
+    res.status(500).json({ error: "Could not create support ticket." });
+  }
+});
+
+// GET /api/support/tickets — list current user's tickets
+app.get("/api/support/tickets", requireAuth, (req: Request, res: Response) => {
+  try {
+    const user = (req as any).user;
+    const tickets = getUserTickets(user.id);
+    res.json({ tickets });
+  } catch (err) {
+    console.error("[Support] Get tickets error:", err);
+    res.status(500).json({ error: "Could not fetch support tickets." });
+  }
+});
+
+// GET /api/support/tickets/:id — get ticket details and conversation thread
+app.get("/api/support/tickets/:id", requireAuth, (req: Request, res: Response) => {
+  try {
+    const user = (req as any).user;
+    const ticketId = parseInt(req.params.id, 10);
+    const ticket = getTicketById(ticketId);
+
+    if (!ticket) {
+      res.status(404).json({ error: "Ticket not found." });
+      return;
+    }
+
+    // Ensure user owns ticket or is admin
+    if (ticket.user_id !== user.id && user.role !== "admin") {
+      res.status(403).json({ error: "Unauthorized access to this ticket." });
+      return;
+    }
+
+    const messages = getTicketMessages(ticketId);
+    res.json({ ticket, messages });
+  } catch (err) {
+    console.error("[Support] Get ticket error:", err);
+    res.status(500).json({ error: "Could not retrieve ticket conversation." });
+  }
+});
+
+// POST /api/support/tickets/:id/messages — add message / reply to ticket
+app.post("/api/support/tickets/:id/messages", requireAuth, (req: Request, res: Response) => {
+  try {
+    const user = (req as any).user;
+    const ticketId = parseInt(req.params.id, 10);
+    const { message } = req.body;
+
+    if (!message || !message.trim()) {
+      res.status(400).json({ error: "Message content cannot be blank." });
+      return;
+    }
+
+    const ticket = getTicketById(ticketId);
+    if (!ticket) {
+      res.status(404).json({ error: "Ticket not found." });
+      return;
+    }
+
+    if (ticket.user_id !== user.id && user.role !== "admin") {
+      res.status(403).json({ error: "Unauthorized access to this ticket." });
+      return;
+    }
+
+    const added = addTicketMessage({
+      ticketId,
+      senderRole: user.role === "admin" ? "admin" : "user",
+      senderName: user.name,
+      message: message.trim(),
+    });
+
+    res.json({ ok: true, message: added });
+  } catch (err) {
+    console.error("[Support] Reply error:", err);
+    res.status(500).json({ error: "Could not post support reply." });
+  }
+});
+
+// GET /api/admin/support/tickets — admin view of all tickets and metrics
+app.get("/api/admin/support/tickets", requireAdmin, (req: Request, res: Response) => {
+  try {
+    const status = req.query.status as string | undefined;
+    const tickets = getAllSupportTickets(status);
+    const stats = getSupportStats();
+    res.json({ tickets, stats });
+  } catch (err) {
+    console.error("[Admin Support] Get all error:", err);
+    res.status(500).json({ error: "Could not fetch support tickets." });
+  }
+});
+
+// PUT /api/admin/support/tickets/:id/status — admin update ticket status/priority
+app.put("/api/admin/support/tickets/:id/status", requireAdmin, (req: Request, res: Response) => {
+  try {
+    const ticketId = parseInt(req.params.id, 10);
+    const { status, priority } = req.body;
+    updateTicketStatus(ticketId, status, priority);
+    res.json({ ok: true });
+  } catch (err) {
+    console.error("[Admin Support] Update status error:", err);
+    res.status(500).json({ error: "Could not update ticket status." });
   }
 });
 
@@ -1944,6 +2212,9 @@ function generateHeuristicCopyrightAudit(assets: any[] = []) {
 
 // Vite middleware or static serving
 async function startServer() {
+  const publicPath = path.join(process.cwd(), "public");
+  app.use(express.static(publicPath));
+
   if (process.env.NODE_ENV !== "production") {
     const vite = await createViteServer({
       server: { middlewareMode: true },

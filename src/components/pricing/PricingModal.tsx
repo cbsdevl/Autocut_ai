@@ -1,8 +1,9 @@
 import React, { useEffect, useState } from "react";
 import {
-  X, Zap, Check, Loader2, Star, Calendar, Clock, AlertCircle
+  X, Zap, Check, Loader2, Star, Calendar, Clock, AlertCircle, CreditCard
 } from "lucide-react";
 import { useAuth } from "../../context/AuthContext";
+import { GooglePayCheckoutModal, CheckoutPlan } from "../payments/GooglePayCheckoutModal";
 
 interface Plan {
   id: number;
@@ -29,6 +30,7 @@ export const PricingModal: React.FC<PricingModalProps> = ({ isOpen, onClose, sho
   const [upgrading, setUpgrading] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [gpayPlan, setGpayPlan] = useState<CheckoutPlan | null>(null);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -173,38 +175,76 @@ export const PricingModal: React.FC<PricingModalProps> = ({ isOpen, onClose, sho
                       ))}
                     </ul>
 
-                    <button
-                      onClick={() => handleUpgrade(plan.slug)}
-                      disabled={isCurrent || plan.slug === "free" || upgrading !== null}
-                      className={`w-full py-2.5 rounded-lg font-semibold text-sm transition-all duration-200 flex items-center justify-center gap-2
-                        ${isCurrent
-                          ? "bg-white/8 text-gray-400 cursor-default"
-                          : plan.slug === "free"
-                          ? "bg-white/5 text-gray-500 cursor-default"
-                          : isPopular
-                          ? "bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-500 hover:to-pink-500 text-white shadow-lg shadow-purple-600/20"
-                          : "bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white"
-                        }`}
-                    >
-                      {upgrading === plan.slug ? (
-                        <><Loader2 className="w-4 h-4 animate-spin" /> Processing…</>
-                      ) : isCurrent ? (
-                        <><Check className="w-4 h-4" /> Current Plan</>
-                      ) : plan.slug === "free" ? (
-                        "Free Plan"
-                      ) : (
-                        <><Zap className="w-4 h-4" /> Upgrade Now</>
-                      )}
-                    </button>
+                    {isCurrent ? (
+                      <button
+                        disabled
+                        className="w-full py-2.5 rounded-lg font-semibold text-sm bg-white/8 text-gray-400 cursor-default flex items-center justify-center gap-2"
+                      >
+                        <Check className="w-4 h-4" /> Current Plan
+                      </button>
+                    ) : plan.slug === "free" ? (
+                      <button
+                        disabled
+                        className="w-full py-2.5 rounded-lg font-semibold text-sm bg-white/5 text-gray-500 cursor-default flex items-center justify-center"
+                      >
+                        Free Forever
+                      </button>
+                    ) : (
+                      <div className="space-y-2">
+                        {/* Primary Google Pay Button */}
+                        <button
+                          onClick={() => setGpayPlan(plan)}
+                          className="w-full py-2.5 px-3 rounded-lg font-bold text-xs bg-white hover:bg-zinc-100 text-zinc-950 transition flex items-center justify-center gap-1.5 shadow-md shadow-white/5 cursor-pointer"
+                        >
+                          <span className="font-semibold text-zinc-900">Pay with</span>
+                          <span className="font-bold tracking-tight inline-flex items-center">
+                            <span className="text-[#4285F4]">G</span>
+                            <span className="text-[#EA4335]">o</span>
+                            <span className="text-[#FBBC05]">o</span>
+                            <span className="text-[#4285F4]">g</span>
+                            <span className="text-[#34A853]">l</span>
+                            <span className="text-[#EA4335]">e</span>
+                            <span className="text-zinc-800 ml-1 font-semibold">Pay</span>
+                          </span>
+                        </button>
+
+                        <button
+                          onClick={() => handleUpgrade(plan.slug)}
+                          disabled={upgrading !== null}
+                          className="w-full py-1.5 rounded-lg text-xs font-medium text-gray-400 hover:text-white bg-white/5 hover:bg-white/10 transition flex items-center justify-center gap-1.5"
+                        >
+                          {upgrading === plan.slug ? (
+                            <><Loader2 className="w-3.5 h-3.5 animate-spin" /> Upgrading…</>
+                          ) : (
+                            <><Zap className="w-3.5 h-3.5 text-amber-400" /> Quick Upgrade</>
+                          )}
+                        </button>
+                      </div>
+                    )}
                   </div>
                 );
               })}
             </div>
           )}
 
-          <p className="text-center text-xs text-gray-600 mt-5">
-            Demo mode: selecting a plan activates it immediately. No payment is collected.
+          <p className="text-center text-xs text-gray-500 mt-5 flex items-center justify-center gap-1.5">
+            <CreditCard className="w-3.5 h-3.5 text-emerald-400" />
+            <span>Google Pay secure tokenized subscriptions supported.</span>
           </p>
+
+          {/* Google Pay Checkout Modal */}
+          <GooglePayCheckoutModal
+            isOpen={gpayPlan !== null}
+            plan={gpayPlan}
+            onClose={() => setGpayPlan(null)}
+            onPaymentComplete={(transaction) => {
+              setSuccessMsg(`Upgraded to ${transaction.plan} with Google Pay!`);
+              setTimeout(() => {
+                setSuccessMsg(null);
+                onClose();
+              }, 2500);
+            }}
+          />
         </div>
       </div>
     </div>

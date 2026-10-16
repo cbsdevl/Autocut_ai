@@ -12,10 +12,14 @@ import { LoginPage } from "./components/auth/LoginPage.tsx";
 import { RegisterPage } from "./components/auth/RegisterPage.tsx";
 import { ProjectsPage } from "./pages/ProjectsPage.tsx";
 import { PricingPage } from "./pages/PricingPage.tsx";
+import { LandingPage } from "./pages/LandingPage.tsx";
 import { AccountPage } from "./pages/AccountPage.tsx";
 import { HelpPage } from "./pages/HelpPage.tsx";
+import { SupportPage } from "./pages/SupportPage.tsx";
+import { GooglePayBuyflowPage } from "./pages/GooglePayBuyflowPage.tsx";
 import { AdminPage } from "./pages/AdminPage.tsx";
 import { NotFoundPage } from "./pages/NotFoundPage.tsx";
+import { SupportWidget } from "./components/support/SupportWidget.tsx";
 import "./index.css";
 
 createRoot(document.getElementById("root")!).render(
@@ -27,6 +31,8 @@ createRoot(document.getElementById("root")!).render(
           <Route path="/pricing" element={<PricingPage />} />
           <Route path="/help" element={<HelpPage />} />
           <Route path="/guides" element={<Navigate to="/help" replace />} />
+          <Route path="/gpay-buyflow" element={<GooglePayBuyflowPage />} />
+          <Route path="/google-pay-buyflow" element={<Navigate to="/gpay-buyflow" replace />} />
 
           {/* Guest / Public-Only Authentication Routes */}
           <Route
@@ -46,8 +52,8 @@ createRoot(document.getElementById("root")!).render(
             }
           />
 
-          {/* Protected Studio & Project Routes */}
-          <Route path="/" element={<Navigate to="/editor" replace />} />
+          {/* Public Landing & Informational Routes */}
+          <Route path="/" element={<LandingPage />} />
           <Route
             path="/editor"
             element={
@@ -82,6 +88,10 @@ createRoot(document.getElementById("root")!).render(
           />
           <Route path="/settings" element={<Navigate to="/account" replace />} />
 
+          {/* Customer Support Routes */}
+          <Route path="/support" element={<SupportPage />} />
+          <Route path="/contact" element={<Navigate to="/support" replace />} />
+
           {/* Protected Admin Routes */}
           <Route
             path="/admin"
@@ -95,6 +105,9 @@ createRoot(document.getElementById("root")!).render(
           {/* Catch-all 404 Route */}
           <Route path="*" element={<NotFoundPage />} />
         </Routes>
+
+        {/* Global Floating Support Widget */}
+        <SupportWidget />
       </BrowserRouter>
     </AuthProvider>
   </StrictMode>

@@ -14,10 +14,15 @@ import {
   CheckCircle2,
   Sliders,
   Music,
+  CreditCard,
+  ExternalLink,
+  Key,
+  LifeBuoy,
+  MessageSquare,
 } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
 
-type GuideTab = "quickstart" | "autocut" | "copyright" | "captions" | "shortcuts" | "export";
+type GuideTab = "quickstart" | "autocut" | "copyright" | "captions" | "shortcuts" | "export" | "googlepay";
 
 export const HelpPage: React.FC = () => {
   const { currentUser } = useAuth();
@@ -70,6 +75,12 @@ export const HelpPage: React.FC = () => {
             >
               Guides
             </Link>
+            <Link
+              to="/support"
+              className="px-3 py-1.5 rounded-md text-zinc-400 hover:text-white hover:bg-zinc-900 transition-colors"
+            >
+              Support
+            </Link>
           </nav>
         </div>
 
@@ -108,6 +119,7 @@ export const HelpPage: React.FC = () => {
             { id: "captions", label: "Auto Captions", icon: Subtitles },
             { id: "shortcuts", label: "Shortcuts", icon: Keyboard },
             { id: "export", label: "YouTube Export", icon: Share2 },
+            { id: "googlepay", label: "Google Pay API", icon: CreditCard },
           ].map((tab) => {
             const Icon = tab.icon;
             const isActive = activeTab === tab.id;
@@ -297,6 +309,128 @@ export const HelpPage: React.FC = () => {
               </ul>
             </div>
           )}
+
+          {activeTab === "googlepay" && (
+            <div className="space-y-6">
+              <div className="flex items-center justify-between">
+                <h2 className="text-xl font-bold text-white flex items-center gap-2">
+                  <CreditCard className="w-5 h-5 text-emerald-400" />
+                  Google Pay API Setup & Production Guide
+                </h2>
+                <a
+                  href="https://pay.google.com/business/console"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="hidden sm:flex items-center gap-1.5 text-xs text-amber-400 hover:text-amber-300 font-medium px-3 py-1.5 rounded-lg bg-amber-400/10 border border-amber-400/20 transition"
+                >
+                  <span>Google Pay Business Console</span>
+                  <ExternalLink className="w-3.5 h-3.5" />
+                </a>
+              </div>
+
+              <p className="text-zinc-300 text-sm leading-relaxed">
+                Google Pay allows your users to subscribe to AutoCut AI using credit/debit cards stored in their Google Account or Chrome autofill. The app is already pre-configured in <strong>TEST / Sandbox mode</strong> so you can test transactions immediately without real charges.
+              </p>
+
+              {/* Buyflow Screenshots Submission Banner */}
+              <div className="p-4 sm:p-5 bg-gradient-to-r from-blue-950/40 via-zinc-900 to-zinc-900 border border-blue-500/30 rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                <div className="flex items-start gap-3">
+                  <div className="w-8 h-8 rounded-lg bg-blue-500/20 text-blue-400 flex items-center justify-center shrink-0 mt-0.5">
+                    <CreditCard className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <h3 className="font-bold text-white text-sm">Need the 5 Buyflow Screenshots for Google Pay Approval?</h3>
+                    <p className="text-xs text-zinc-400 mt-0.5 leading-relaxed">
+                      Google requires 5 specific screenshots of your checkout flow. Our interactive kit generates all 5 exact PNG images (under 1MB each) ready for immediate upload.
+                    </p>
+                  </div>
+                </div>
+
+                <Link
+                  to="/gpay-buyflow"
+                  className="px-4 py-2 rounded-xl bg-amber-400 hover:bg-amber-300 text-zinc-950 font-bold text-xs transition flex items-center gap-1.5 shrink-0 shadow-md shadow-amber-400/10"
+                >
+                  <span>Open Screenshot Kit</span>
+                  <ExternalLink className="w-3.5 h-3.5" />
+                </Link>
+              </div>
+
+              <div className="space-y-4 text-xs sm:text-sm">
+                <div className="bg-zinc-950/80 p-4 sm:p-5 rounded-xl border border-zinc-800 space-y-2">
+                  <div className="flex items-center gap-2 text-white font-bold text-sm">
+                    <span className="w-6 h-6 rounded-full bg-amber-400 text-zinc-950 flex items-center justify-center text-xs">1</span>
+                    <span>Test / Development Mode (Ready to Use)</span>
+                  </div>
+                  <p className="text-zinc-400 pl-8 leading-relaxed">
+                    By default, <code className="text-amber-400 bg-zinc-900 px-1.5 py-0.5 rounded">GOOGLE_PAY_ENVIRONMENT="TEST"</code> is enabled. You can test purchases using test cards (e.g. Visa 4242 or Mastercard 5555) via the Google Pay button or the built-in one-click sandbox test button on the checkout modal.
+                  </p>
+                </div>
+
+                <div className="bg-zinc-950/80 p-4 sm:p-5 rounded-xl border border-zinc-800 space-y-2">
+                  <div className="flex items-center gap-2 text-white font-bold text-sm">
+                    <span className="w-6 h-6 rounded-full bg-amber-400 text-zinc-950 flex items-center justify-center text-xs">2</span>
+                    <span>Register with Google Pay Business Console</span>
+                  </div>
+                  <p className="text-zinc-400 pl-8 leading-relaxed">
+                    Visit the <a href="https://pay.google.com/business/console" target="_blank" rel="noopener noreferrer" className="text-amber-400 underline">Google Pay & Wallet Business Console</a>. Sign in with your Google account, create your Business Profile, and submit your website domain for verification.
+                  </p>
+                </div>
+
+                <div className="bg-zinc-950/80 p-4 sm:p-5 rounded-xl border border-zinc-800 space-y-2">
+                  <div className="flex items-center gap-2 text-white font-bold text-sm">
+                    <span className="w-6 h-6 rounded-full bg-amber-400 text-zinc-950 flex items-center justify-center text-xs">3</span>
+                    <span>Connect Your Payment Processor (Gateway)</span>
+                  </div>
+                  <p className="text-zinc-400 pl-8 leading-relaxed">
+                    Google Pay passes encrypted card tokens to your payment gateway. Supported processors include <strong>Stripe, Adyen, Braintree, Square, Checkout.com, and CyberSource</strong>. In your gateway dashboard, enable Google Pay to obtain your Gateway Merchant ID.
+                  </p>
+                </div>
+
+                <div className="bg-zinc-950/80 p-4 sm:p-5 rounded-xl border border-zinc-800 space-y-2">
+                  <div className="flex items-center gap-2 text-white font-bold text-sm">
+                    <span className="w-6 h-6 rounded-full bg-amber-400 text-zinc-950 flex items-center justify-center text-xs">4</span>
+                    <span>Configure Environment Variables</span>
+                  </div>
+                  <div className="pl-8 pt-1">
+                    <p className="text-zinc-400 mb-2">
+                      When ready to accept real payments, update your environment variables or <code className="text-amber-400 bg-zinc-900 px-1 py-0.5 rounded">.env</code>:
+                    </p>
+                    <pre className="bg-zinc-900 border border-zinc-800 rounded-lg p-3 text-[11px] font-mono text-zinc-300 overflow-x-auto leading-relaxed">
+{`# Switch environment to PRODUCTION
+GOOGLE_PAY_ENVIRONMENT="PRODUCTION"
+GOOGLE_PAY_MERCHANT_NAME="AutoCut AI"
+GOOGLE_PAY_MERCHANT_ID="BCR2DN6XXXXXXXX" # From Google Pay Business Console
+GOOGLE_PAY_GATEWAY="stripe"               # e.g. stripe, adyen, braintree
+GOOGLE_PAY_GATEWAY_MERCHANT_ID="acct_123"  # From your payment gateway`}
+                    </pre>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Customer Support Callout */}
+          <div className="mt-8 p-6 bg-gradient-to-r from-zinc-900/90 via-zinc-900/60 to-zinc-900/90 border border-zinc-800 rounded-2xl flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <div className="flex items-start gap-3.5">
+              <div className="w-10 h-10 rounded-xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-emerald-400 shrink-0">
+                <LifeBuoy className="w-5 h-5" />
+              </div>
+              <div>
+                <h4 className="text-sm font-bold text-white">Need one-on-one technical assistance?</h4>
+                <p className="text-xs text-zinc-400 mt-0.5 leading-relaxed">
+                  Our customer support team is available 24/7. Open a ticket for priority help with Google Pay API, video rendering, or custom workflows.
+                </p>
+              </div>
+            </div>
+
+            <Link
+              to="/support"
+              className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-amber-400 hover:bg-amber-300 text-zinc-950 font-bold text-xs transition shadow-md shadow-amber-400/10 shrink-0"
+            >
+              <MessageSquare className="w-3.5 h-3.5" />
+              <span>Contact Support</span>
+            </Link>
+          </div>
         </div>
       </main>
     </div>
