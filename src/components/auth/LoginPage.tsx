@@ -1,7 +1,8 @@
 import React, { useState } from "react";
 import { Link, useNavigate, useLocation } from "react-router-dom";
-import { Film, Eye, EyeOff, Loader2, Mail, Lock, AlertCircle, ArrowLeft } from "lucide-react";
+import { Film, Eye, EyeOff, Loader2, Mail, Lock, AlertCircle, ShieldCheck } from "lucide-react";
 import { useAuth } from "../../context/AuthContext";
+import { GoogleAuthButton } from "./GoogleAuthButton";
 
 interface LoginPageProps {
   onSwitchToRegister?: () => void;
@@ -38,6 +39,11 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onSwitchToRegister }) => {
     }
   };
 
+  const handleGoogleSuccess = () => {
+    const from = (location.state as any)?.from?.pathname || "/editor";
+    navigate(from, { replace: true });
+  };
+
   return (
     <div className="min-h-screen bg-[#0a0a0f] flex items-center justify-center p-4">
       {/* Ambient glow */}
@@ -64,11 +70,26 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onSwitchToRegister }) => {
           <p className="text-zinc-400 text-sm mb-6">Sign in to continue editing your videos</p>
 
           {error && (
-            <div className="flex items-center gap-2 bg-red-500/10 border border-red-500/30 rounded-lg px-4 py-3 mb-5 text-sm text-red-400">
-              <AlertCircle className="w-4 h-4 shrink-0" />
-              {error}
+            <div className="flex items-start gap-2.5 bg-red-500/10 border border-red-500/30 rounded-xl px-4 py-3 mb-5 text-sm text-red-400 animate-in fade-in">
+              <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+              <div className="text-xs leading-relaxed">{error}</div>
             </div>
           )}
+
+          {/* Google Authentication */}
+          <div className="mb-5">
+            <GoogleAuthButton
+              label="Sign in with Google"
+              onSuccess={handleGoogleSuccess}
+            />
+          </div>
+
+          <div className="relative flex items-center justify-center my-6">
+            <div className="border-t border-white/10 w-full" />
+            <span className="bg-[#13131a] px-3 text-[11px] font-semibold tracking-wider text-zinc-500 uppercase shrink-0">
+              or continue with email
+            </span>
+          </div>
 
           <form onSubmit={handleSubmit} className="space-y-4">
             <div>
@@ -114,11 +135,17 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onSwitchToRegister }) => {
             <button
               type="submit"
               disabled={submitting || isLoading}
-              className="w-full bg-amber-400 hover:bg-amber-300 active:bg-amber-500 disabled:opacity-50 disabled:cursor-not-allowed text-zinc-950 font-semibold py-2.5 rounded-lg transition-all duration-200 shadow-lg shadow-amber-400/20 flex items-center justify-center gap-2 mt-2"
+              className="w-full bg-amber-400 hover:bg-amber-300 active:bg-amber-500 disabled:opacity-50 disabled:cursor-not-allowed text-zinc-950 font-semibold py-2.5 rounded-lg transition-all duration-200 shadow-lg shadow-amber-400/20 flex items-center justify-center gap-2 mt-2 text-sm"
             >
               {submitting ? <><Loader2 className="w-4 h-4 animate-spin" /> Signing in…</> : "Sign In"}
             </button>
           </form>
+
+          {/* Security badge */}
+          <div className="mt-5 flex items-center justify-center gap-1.5 text-xs text-zinc-500">
+            <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
+            <span>Encrypted Session · Brute-Force Rate Limiting Active</span>
+          </div>
 
           <p className="text-center text-sm text-zinc-400 mt-6">
             Don't have an account?{" "}

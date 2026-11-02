@@ -21,6 +21,7 @@ import { PricingModal } from "./components/pricing/PricingModal";
 import { ProjectLibraryModal } from "./components/ProjectLibraryModal";
 import { GripHorizontal } from "lucide-react";
 import { useAuth } from "./context/AuthContext";
+import { authFetch } from "./utils/authClient";
 import {
   AutoEditOptions,
   CaptionItem,
@@ -702,7 +703,7 @@ export default function App() {
   const runCopyrightAudit = async (items = mediaItems) => {
     setIsAuditing(true);
     try {
-      const res = await fetch("/api/ai/copyright-audit", {
+      const res = await authFetch("/api/ai/copyright-audit", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ mediaItems: items }),
@@ -736,9 +737,8 @@ export default function App() {
         return;
       }
 
-      const usageResponse = await fetch("/api/ai/consume-generation", {
+      const usageResponse = await authFetch("/api/ai/consume-generation", {
         method: "POST",
-        credentials: "include",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({}),
       });
@@ -759,14 +759,22 @@ export default function App() {
         }
         throw new Error("The AI usage service returned an invalid response.");
       }
+      if (usageResponse.status === 401) {
+        setIsAIAutoEditOpen(false);
+        await refreshUser();
+        navigate("/login", { state: { from: { pathname: "/editor" } } });
+        return;
+      }
+
+      if (usageResponse.status === 403 || usageData.error === "free_limit_reached") {
+        setIsAIAutoEditOpen(false);
+        setPricingShowLimit(true);
+        setIsPricingOpen(true);
+        return;
+      }
+
       if (!usageResponse.ok) {
-        if (usageResponse.status === 403 && usageData.error === "free_limit_reached") {
-          setIsAIAutoEditOpen(false);
-          setPricingShowLimit(true);
-          setIsPricingOpen(true);
-        } else {
-          alert(usageData.message || "Could not verify your AI edit allowance. Please try again.");
-        }
+        alert(usageData.message || usageData.error || "Could not verify your AI edit allowance. Please check your account subscription or sign in.");
         return;
       }
       await refreshUser();
@@ -931,7 +939,7 @@ export default function App() {
           .filter(Boolean),
       );
 
-      const res = await fetch("/api/ai/transcribe-speech", {
+      const res = await authFetch("/api/ai/transcribe-speech", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -963,7 +971,7 @@ export default function App() {
     setIsGeneratingPackage(true);
     try {
       const chaptersText = generateChapterMarkersText(tracks, mediaItems);
-      const res = await fetch("/api/ai/youtube-package", {
+      const res = await authFetch("/api/ai/youtube-package", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

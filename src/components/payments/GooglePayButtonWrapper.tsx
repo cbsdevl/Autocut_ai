@@ -67,7 +67,7 @@ export const GooglePayButtonWrapper: React.FC<GooglePayButtonWrapperProps> = ({
             console.warn("[Google Pay] Web button event error:", error);
             setHasGooglePayError(true);
           }}
-          buttonColor="black"
+          buttonColor="white"
           buttonType="subscribe"
           buttonSizeMode="fill"
           style={{ width: "100%", height: 44, display: "block" }}

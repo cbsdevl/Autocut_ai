@@ -41,7 +41,7 @@ const BUYFLOW_STEPS: StepConfig[] = [
     checklist: [
       "Shows all subscription plans and prices clearly ($9.99/wk, $19.99/mo, $49.99/mo)",
       "Clear description of features included in each plan",
-      "Official 'Buy with G Pay' buttons using the official G Pay mark",
+      "Official 'Buy with G Pay' buttons (light theme compliant with background adaptation rules)",
       "Transparent terms and billing duration (monthly / weekly)",
     ],
   },
@@ -56,7 +56,7 @@ const BUYFLOW_STEPS: StepConfig[] = [
       "Shows the selected item name ('Pro Tier Subscription') and exact price ($19.99 USD)",
       "Displays itemized order summary, quota limits, and billing interval",
       "Header displays the official Google Pay acceptance mark ('G Pay')",
-      "Official black 'Buy with G Pay' button prominently displayed prior to payment",
+      "Official white 'Buy with G Pay' button (light theme compliant with dark background adaptation rules)",
     ],
   },
   {
@@ -68,9 +68,9 @@ const BUYFLOW_STEPS: StepConfig[] = [
     filename: "3_payment_method_screen.png",
     checklist: [
       "CRITICAL: Uses the official 'G Pay' mark (never custom spelled-out 'Google Pay' letters)",
-      "Google Pay acceptance mark pill displays the 4-color 'G' icon + 'Pay' text",
+      "Google Pay acceptance mark pill displays the 4-color 'G' icon + 'Pay' text inside white capsule",
       "Shows supported card networks (Visa, Mastercard, Amex, Discover)",
-      "Official black 'Buy with G Pay' button displayed at bottom",
+      "Official white 'Buy with G Pay' button at bottom (light theme compliant with background adaptation rules)",
       "Confirms card data is never stored on merchant servers",
     ],
   },
@@ -382,21 +382,21 @@ export const GooglePayBuyflowPage: React.FC = () => {
           ctx.fillText(feat, x + 44, y + 165 + fi * 30);
         });
 
-        // Pay with Google Pay Button (Official Black Button with white Pay)
+        // Pay with Google Pay Button (Official Light Theme Button for Dark Background)
         const btnY = y + h - 68;
-        ctx.fillStyle = "#000000";
-        ctx.strokeStyle = "#3f3f46";
+        ctx.fillStyle = "#ffffff";
+        ctx.strokeStyle = "#dadce0";
         ctx.lineWidth = 1;
         ctx.beginPath();
         ctx.roundRect(x + 24, btnY, w - 48, 44, 10);
         ctx.fill();
         ctx.stroke();
 
-        ctx.fillStyle = "#ffffff";
+        ctx.fillStyle = "#3c4043";
         ctx.font = "500 14px sans-serif";
         ctx.textAlign = "right";
         ctx.fillText("Buy with", x + 152, btnY + 28);
-        drawOfficialGPayMark(ctx, x + 160, btnY + 11, { scale: 0.95, textColor: "#ffffff" });
+        drawOfficialGPayMark(ctx, x + 160, btnY + 11, { scale: 0.95, textColor: "#3c4043" });
       });
     } else if (stepIdx === 1) {
       // ──────────────────────────────────────────────
@@ -504,21 +504,21 @@ export const GooglePayBuyflowPage: React.FC = () => {
       ctx.fillText("🔒 256-bit Encrypted Token", mx + mw - 24, my + 375);
       ctx.textAlign = "left";
 
-      // Official Large Black Google Pay Button
-      ctx.fillStyle = "#000000";
-      ctx.strokeStyle = "#ffffff";
+      // Official Large Light Theme Google Pay Button (for dark background adaptation)
+      ctx.fillStyle = "#ffffff";
+      ctx.strokeStyle = "#dadce0";
       ctx.lineWidth = 1;
       ctx.beginPath();
       ctx.roundRect(mx + 24, my + 390, mw - 48, 52, 12);
       ctx.fill();
       ctx.stroke();
 
-      // Button content: "Buy with [G] Pay"
-      ctx.fillStyle = "#ffffff";
+      // Button content: "Buy with [G] Pay" (Light theme with dark text)
+      ctx.fillStyle = "#3c4043";
       ctx.font = "500 16px sans-serif";
       ctx.textAlign = "right";
       ctx.fillText("Buy with", mx + mw / 2 - 8, my + 422);
-      drawOfficialGPayMark(ctx, mx + mw / 2, my + 403, { scale: 1.05, textColor: "#ffffff" });
+      drawOfficialGPayMark(ctx, mx + mw / 2, my + 403, { scale: 1.05, textColor: "#3c4043" });
 
       // Terms note
       ctx.fillStyle = "#71717a";
@@ -633,20 +633,20 @@ export const GooglePayBuyflowPage: React.FC = () => {
       ctx.fillText("✓ Merchant never stores primary card numbers", mx + 40, my + 378);
       ctx.fillText("✓ Instant receipt generation & email confirmation", mx + 40, my + 401);
 
-      // Official Google Pay Action Button (Black button with Buy with G Pay)
-      ctx.fillStyle = "#000000";
-      ctx.strokeStyle = "#ffffff";
+      // Official Google Pay Action Button (Light theme button compliant with dark background adaptation rule)
+      ctx.fillStyle = "#ffffff";
+      ctx.strokeStyle = "#dadce0";
       ctx.lineWidth = 1;
       ctx.beginPath();
       ctx.roundRect(mx + 24, my + 445, mw - 48, 52, 12);
       ctx.fill();
       ctx.stroke();
 
-      ctx.fillStyle = "#ffffff";
+      ctx.fillStyle = "#3c4043";
       ctx.font = "500 16px sans-serif";
       ctx.textAlign = "right";
       ctx.fillText("Buy with", mx + mw / 2 - 8, my + 477);
-      drawOfficialGPayMark(ctx, mx + mw / 2, my + 458, { scale: 1.05, textColor: "#ffffff" });
+      drawOfficialGPayMark(ctx, mx + mw / 2, my + 458, { scale: 1.05, textColor: "#3c4043" });
       ctx.textAlign = "left";
     } else if (stepIdx === 3) {
       // ──────────────────────────────────────────────
@@ -1018,8 +1018,8 @@ export const GooglePayBuyflowPage: React.FC = () => {
                     {step.id}
                   </span>
                   {idx === 2 && (
-                    <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-amber-400/20 text-amber-300">
-                      Fix Needed
+                    <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-emerald-500/20 text-emerald-300">
+                      Fixed &amp; Compliant
                     </span>
                   )}
                   <span className="text-[10px] font-mono text-zinc-500">.png</span>
@@ -1034,6 +1034,29 @@ export const GooglePayBuyflowPage: React.FC = () => {
               </button>
             );
           })}
+        </div>
+
+        {/* Background Adaptation Compliance Resolution Banner */}
+        <div className="p-4 rounded-xl bg-emerald-500/10 border border-emerald-500/30 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div className="flex items-start gap-3">
+            <CheckCircle2 className="w-5 h-5 text-emerald-400 shrink-0 mt-0.5" />
+            <div className="text-xs space-y-0.5">
+              <p className="font-bold text-white">
+                Background Adaptation Rule: Light Theme Button Applied
+              </p>
+              <p className="text-zinc-300 leading-relaxed">
+                Google Pay brand guidelines require a light theme (white) button when placed on dark backgrounds.
+                The &ldquo;Buy with G Pay&rdquo; button in <strong>Screen #3 (Payment Method Screen)</strong> and <strong>Screen #2</strong> now uses the official white button styling with crisp dark charcoal text and vector G Pay mark.
+              </p>
+            </div>
+          </div>
+          <button
+            onClick={() => handleDownloadStep(2)}
+            className="px-4 py-2 rounded-lg bg-emerald-400 hover:bg-emerald-300 text-zinc-950 font-bold text-xs transition flex items-center justify-center gap-1.5 shrink-0 whitespace-nowrap shadow-md shadow-emerald-400/20 cursor-pointer"
+          >
+            <Download className="w-3.5 h-3.5" />
+            <span>Download Fixed Screen #3</span>
+          </button>
         </div>
 
         {/* Active Step Workspace */}
@@ -1176,9 +1199,9 @@ export const GooglePayBuyflowPage: React.FC = () => {
             </div>
 
             <div className="p-4 rounded-xl bg-zinc-950/60 border border-zinc-800/80 space-y-1.5">
-              <p className="font-bold text-white">3. Official Button Styling</p>
+              <p className="font-bold text-white">3. Background Adaptation Rules</p>
               <p className="leading-relaxed">
-                The primary action button must use the official &quot;Buy with G Pay&quot; format on a solid black or white background. Our updated screenshot matches Google&apos;s exact button specifications.
+                Google&apos;s brand guidelines mandate that when placed on dark backgrounds, the Google Pay button must use the <strong>Light Theme (white button)</strong> with dark text (#3c4043). The black button is only permitted on light backgrounds. Our screenshots and web components strictly follow this rule.
               </p>
             </div>
           </div>

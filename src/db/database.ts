@@ -95,11 +95,64 @@ db.exec(`
     message       TEXT    NOT NULL,
     created_at    TEXT    NOT NULL DEFAULT (datetime('now'))
   );
+
+  CREATE TABLE IF NOT EXISTS device_registrations (
+    id                 INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id            INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    ip_address         TEXT NOT NULL,
+    device_fingerprint TEXT NOT NULL,
+    registered_email   TEXT NOT NULL,
+    user_agent         TEXT,
+    created_at         TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+
+  CREATE TABLE IF NOT EXISTS email_verifications (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    email       TEXT NOT NULL,
+    code        TEXT NOT NULL,
+    expires_at  TEXT NOT NULL,
+    verified    INTEGER NOT NULL DEFAULT 0,
+    created_at  TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+
+  CREATE TABLE IF NOT EXISTS auth_audit_logs (
+    id                 INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id            INTEGER,
+    email              TEXT,
+    event_type         TEXT NOT NULL,
+    ip_address         TEXT,
+    device_fingerprint TEXT,
+    details            TEXT,
+    created_at         TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+
+  CREATE TABLE IF NOT EXISTS login_attempts (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    email       TEXT NOT NULL,
+    ip_address  TEXT NOT NULL,
+    success     INTEGER NOT NULL DEFAULT 0,
+    created_at  TEXT NOT NULL DEFAULT (datetime('now'))
+  );
 `);
 
 const userColumns = db.pragma("table_info(users)") as Array<{ name: string }>;
 if (!userColumns.some((column) => column.name === "free_ai_videos_used")) {
   db.exec("ALTER TABLE users ADD COLUMN free_ai_videos_used INTEGER NOT NULL DEFAULT 0");
+}
+if (!userColumns.some((column) => column.name === "google_id")) {
+  db.exec("ALTER TABLE users ADD COLUMN google_id TEXT");
+}
+if (!userColumns.some((column) => column.name === "avatar_url")) {
+  db.exec("ALTER TABLE users ADD COLUMN avatar_url TEXT");
+}
+if (!userColumns.some((column) => column.name === "email_verified")) {
+  db.exec("ALTER TABLE users ADD COLUMN email_verified INTEGER NOT NULL DEFAULT 0");
+}
+if (!userColumns.some((column) => column.name === "registration_ip")) {
+  db.exec("ALTER TABLE users ADD COLUMN registration_ip TEXT");
+}
+if (!userColumns.some((column) => column.name === "registration_device_id")) {
+  db.exec("ALTER TABLE users ADD COLUMN registration_device_id TEXT");
 }
 
 db.exec(`
@@ -157,9 +210,15 @@ export interface DBUser {
   id: number;
   name: string;
   email: string;
-  password: string;
+  password?: string;
   role: "user" | "admin";
   created_at: string;
+  free_ai_videos_used?: number;
+  google_id?: string | null;
+  avatar_url?: string | null;
+  email_verified?: number;
+  registration_ip?: string | null;
+  registration_device_id?: string | null;
 }
 
 export interface DBPricingPlan {
@@ -201,6 +260,9 @@ export interface UserWithSubscription extends DBUser {
 export const getUserByEmail = (email: string): DBUser | undefined =>
   db.prepare("SELECT * FROM users WHERE email = ?").get(email) as DBUser | undefined;
 
+export const getUserByGoogleId = (googleId: string): DBUser | undefined =>
+  db.prepare("SELECT * FROM users WHERE google_id = ?").get(googleId) as DBUser | undefined;
+
 export const getUserById = (id: number): DBUser | undefined =>
   db.prepare("SELECT * FROM users WHERE id = ?").get(id) as DBUser | undefined;
 
@@ -216,30 +278,255 @@ export const getAllUsers = (): UserWithSubscription[] =>
     ORDER BY u.created_at DESC
   `).all() as UserWithSubscription[];
 
-export const createUser = (name: string, email: string, passwordHash: string): number => {
-  const result = db.prepare(
-    "INSERT INTO users (name, email, password) VALUES (?, ?, ?)"
-  ).run(name, email, passwordHash);
+export interface CreateUserOptions {
+  googleId?: string | null;
+  avatarUrl?: string | null;
+  emailVerified?: number;
+  registrationIp?: string | null;
+  registrationDeviceId?: string | null;
+}
+
+export const createUser = (
+  name: string,
+  email: string,
+  passwordHash: string,
+  options: CreateUserOptions = {}
+): number => {
+  const result = db.prepare(`
+    INSERT INTO users (
+      name, email, password, google_id, avatar_url, email_verified, registration_ip, registration_device_id
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(
+    name,
+    email,
+    passwordHash,
+    options.googleId || null,
+    options.avatarUrl || null,
+    options.emailVerified ?? 0,
+    options.registrationIp || null,
+    options.registrationDeviceId || null
+  );
+
+  const userId = result.lastInsertRowid as number;
 
   const freePlan = db.prepare("SELECT id FROM pricing_plans WHERE slug = 'free' LIMIT 1").get() as { id: number };
   db.prepare(
     "INSERT INTO user_subscriptions (user_id, plan_id) VALUES (?, ?)"
-  ).run(result.lastInsertRowid, freePlan.id);
+  ).run(userId, freePlan.id);
 
-  return result.lastInsertRowid as number;
+  if (options.registrationIp && options.registrationDeviceId) {
+    recordDeviceRegistration(userId, options.registrationIp, options.registrationDeviceId, email);
+  }
+
+  return userId;
 };
 
-export const getUserWithSubscription = (userId: number): UserWithSubscription | undefined =>
+export const linkGoogleAccount = (userId: number, googleId: string, avatarUrl?: string) => {
+  if (avatarUrl) {
+    db.prepare("UPDATE users SET google_id = ?, avatar_url = COALESCE(avatar_url, ?), email_verified = 1 WHERE id = ?")
+      .run(googleId, avatarUrl, userId);
+  } else {
+    db.prepare("UPDATE users SET google_id = ?, email_verified = 1 WHERE id = ?")
+      .run(googleId, userId);
+  }
+};
+
+// ── Multi-Account & Device Registration Restrictions ──
+
+export interface DeviceCheckResult {
+  isBlocked: boolean;
+  reason?: string;
+  existingUserId?: number;
+  registeredEmail?: string;
+}
+
+/**
+ * Checks if this device fingerprint or IP address has already registered an account.
+ * Restricts multiple registrations to prevent automated bot signups and trial abuse.
+ */
+export const checkDeviceOrIpRegistration = (
+  ipAddress: string,
+  deviceFingerprint: string
+): DeviceCheckResult => {
+  // 1. Check device fingerprint (strictly 1 account per device)
+  if (deviceFingerprint && deviceFingerprint !== "server_env") {
+    const existingDevice = db.prepare(`
+      SELECT user_id, registered_email, created_at
+      FROM device_registrations
+      WHERE device_fingerprint = ?
+      ORDER BY id ASC
+      LIMIT 1
+    `).get(deviceFingerprint) as { user_id: number; registered_email: string; created_at: string } | undefined;
+
+    if (existingDevice) {
+      const maskedEmail = existingDevice.registered_email.replace(
+        /(.{2})(.*)(@.*)/,
+        "$1***$3"
+      );
+      return {
+        isBlocked: true,
+        reason: `An account (${maskedEmail}) has already been registered on this device. AutoCut AI restricts registration to 1 account per device to ensure fair system capacity and prevent trial abuse. Please sign in to your existing account.`,
+        existingUserId: existingDevice.user_id,
+        registeredEmail: existingDevice.registered_email,
+      };
+    }
+  }
+
+  // 2. Check IP Address registration count (allow up to 2 accounts per public/home IP; ignore loopback/localhost)
+  const isLocalhost = ipAddress === "127.0.0.1" || ipAddress === "::1" || ipAddress === "localhost";
+  if (!isLocalhost && ipAddress) {
+    const ipCount = (
+      db.prepare(`
+        SELECT COUNT(DISTINCT registered_email) as count
+        FROM device_registrations
+        WHERE ip_address = ?
+      `).get(ipAddress) as { count: number }
+    ).count;
+
+    // Strict multi-account threshold per IP
+    if (ipCount >= 2) {
+      return {
+        isBlocked: true,
+        reason: `Registration limit reached for this network address (${ipAddress}). Multiple accounts from the same IP address are restricted to protect platform resources. Please sign in to your existing account.`,
+      };
+    }
+  }
+
+  return { isBlocked: false };
+};
+
+export const recordDeviceRegistration = (
+  userId: number,
+  ipAddress: string,
+  deviceFingerprint: string,
+  registeredEmail: string,
+  userAgent?: string
+) => {
   db.prepare(`
+    INSERT INTO device_registrations (user_id, ip_address, device_fingerprint, registered_email, user_agent)
+    VALUES (?, ?, ?, ?, ?)
+  `).run(userId, ipAddress, deviceFingerprint, registeredEmail, userAgent || "");
+};
+
+// ── Email Verification Codes ──
+
+export const saveEmailVerificationCode = (email: string, code: string, durationMinutes = 15) => {
+  // Invalidate previous unverified codes for this email
+  db.prepare("DELETE FROM email_verifications WHERE email = ?").run(email.toLowerCase());
+  
+  const expiresAt = new Date(Date.now() + durationMinutes * 60 * 1000).toISOString();
+  db.prepare(`
+    INSERT INTO email_verifications (email, code, expires_at)
+    VALUES (?, ?, ?)
+  `).run(email.toLowerCase(), code, expiresAt);
+};
+
+export const verifyEmailCode = (email: string, code: string): boolean => {
+  const row = db.prepare(`
+    SELECT id, expires_at, verified
+    FROM email_verifications
+    WHERE email = ? AND code = ? AND verified = 0
+    ORDER BY id DESC
+    LIMIT 1
+  `).get(email.toLowerCase(), code.trim()) as { id: number; expires_at: string; verified: number } | undefined;
+
+  if (!row) return false;
+
+  const isExpired = new Date(row.expires_at).getTime() < Date.now();
+  if (isExpired) return false;
+
+  db.prepare("UPDATE email_verifications SET verified = 1 WHERE id = ?").run(row.id);
+  db.prepare("UPDATE users SET email_verified = 1 WHERE email = ?").run(email.toLowerCase());
+  return true;
+};
+
+// ── Security & Login Attempt Auditing ──
+
+export const recordAuthAudit = (
+  eventType: string,
+  data: {
+    userId?: number;
+    email?: string;
+    ipAddress?: string;
+    deviceFingerprint?: string;
+    details?: string;
+  }
+) => {
+  try {
+    db.prepare(`
+      INSERT INTO auth_audit_logs (user_id, email, event_type, ip_address, device_fingerprint, details)
+      VALUES (?, ?, ?, ?, ?, ?)
+    `).run(
+      data.userId || null,
+      data.email || "",
+      eventType,
+      data.ipAddress || "",
+      data.deviceFingerprint || "",
+      data.details || ""
+    );
+  } catch (e) {
+    console.error("[AuthAudit] Error:", e);
+  }
+};
+
+export const getRecentFailedLogins = (email: string, ipAddress: string, windowMinutes = 15): number => {
+  const windowTime = new Date(Date.now() - windowMinutes * 60 * 1000).toISOString();
+  const row = db.prepare(`
+    SELECT COUNT(*) as count
+    FROM login_attempts
+    WHERE (email = ? OR ip_address = ?)
+      AND success = 0
+      AND created_at >= ?
+  `).get(email.toLowerCase(), ipAddress, windowTime) as { count: number };
+  return row ? row.count : 0;
+};
+
+export const recordLoginAttempt = (email: string, ipAddress: string, success: boolean) => {
+  db.prepare(`
+    INSERT INTO login_attempts (email, ip_address, success)
+    VALUES (?, ?, ?)
+  `).run(email.toLowerCase(), ipAddress, success ? 1 : 0);
+};
+
+export const getUserWithSubscription = (userId: number): UserWithSubscription | undefined => {
+  const row = db.prepare(`
     SELECT u.*, pp.slug AS plan_slug, pp.name AS plan_name, pp.price AS plan_price,
            pp.currency AS plan_currency, pp.ai_video_limit,
            CASE WHEN pp.slug = 'free' THEN u.free_ai_videos_used ELSE us.ai_videos_used END AS ai_videos_used,
-           us.id AS subscription_id, us.expires_at
+           us.id AS subscription_id, us.expires_at, us.is_active
     FROM users u
     LEFT JOIN user_subscriptions us ON us.user_id = u.id AND us.is_active = 1
     LEFT JOIN pricing_plans pp ON pp.id = us.plan_id
     WHERE u.id = ?
-  `).get(userId) as UserWithSubscription | undefined;
+  `).get(userId) as (UserWithSubscription & { is_active?: number }) | undefined;
+
+  if (!row) return undefined;
+
+  // If user has no active subscription row, auto-provision default free plan
+  if (!row.plan_slug) {
+    const freePlan = db.prepare("SELECT id FROM pricing_plans WHERE slug = 'free' LIMIT 1").get() as { id: number } | undefined;
+    if (freePlan) {
+      db.prepare("INSERT INTO user_subscriptions (user_id, plan_id, ai_videos_used, is_active) VALUES (?, ?, 0, 1)").run(userId, freePlan.id);
+      return getUserWithSubscription(userId);
+    }
+  }
+
+  // Check if paid subscription has expired
+  if (row.expires_at && row.plan_slug !== "free") {
+    const isExpired = new Date(row.expires_at).getTime() < Date.now();
+    if (isExpired) {
+      // Deactivate expired subscription and assign free plan
+      db.transaction(() => {
+        db.prepare("UPDATE user_subscriptions SET is_active = 0 WHERE id = ?").run(row.subscription_id);
+        const freePlan = db.prepare("SELECT id FROM pricing_plans WHERE slug = 'free' LIMIT 1").get() as { id: number };
+        db.prepare("INSERT INTO user_subscriptions (user_id, plan_id, ai_videos_used, is_active) VALUES (?, ?, 0, 1)").run(userId, freePlan.id);
+      })();
+      return getUserWithSubscription(userId);
+    }
+  }
+
+  return row;
+};
 
 export const updateUserRole = (userId: number, role: "user" | "admin") =>
   db.prepare("UPDATE users SET role = ? WHERE id = ?").run(role, userId);
@@ -250,25 +537,43 @@ export const deleteUser = (userId: number) =>
 // ── Subscriptions ──────────────────────
 
 export const consumeAiVideoUsage = (userId: number): boolean => db.transaction(() => {
-  const subscription = db.prepare(`
-    SELECT us.id, pp.slug AS plan_slug, pp.ai_video_limit, u.free_ai_videos_used
-    FROM user_subscriptions us
-    JOIN pricing_plans pp ON pp.id = us.plan_id
-    JOIN users u ON u.id = us.user_id
-    WHERE us.user_id = ? AND us.is_active = 1
-  `).get(userId) as { id: number; plan_slug: string; ai_video_limit: number; free_ai_videos_used: number } | undefined;
+  let userSub = getUserWithSubscription(userId);
+  if (!userSub) return false;
 
-  if (!subscription) return false;
-  if (subscription.plan_slug === "free") {
+  // Agency plan has unlimited edits
+  if (userSub.plan_slug === "agency" || (userSub.ai_video_limit && userSub.ai_video_limit >= 9999)) {
+    if (userSub.subscription_id) {
+      db.prepare("UPDATE user_subscriptions SET ai_videos_used = ai_videos_used + 1 WHERE id = ?").run(userSub.subscription_id);
+    }
+    return true;
+  }
+
+  // Free plan limit check
+  if (userSub.plan_slug === "free") {
+    const limit = userSub.ai_video_limit || 2;
     const result = db.prepare(`
       UPDATE users
       SET free_ai_videos_used = free_ai_videos_used + 1
       WHERE id = ? AND free_ai_videos_used < ?
-    `).run(userId, subscription.ai_video_limit);
+    `).run(userId, limit);
+
     if (result.changes === 0) return false;
+
+    if (userSub.subscription_id) {
+      db.prepare("UPDATE user_subscriptions SET ai_videos_used = ai_videos_used + 1 WHERE id = ?").run(userSub.subscription_id);
+    }
+    return true;
   }
 
-  db.prepare("UPDATE user_subscriptions SET ai_videos_used = ai_videos_used + 1 WHERE id = ?").run(subscription.id);
+  // Paid tier limit check
+  const paidLimit = userSub.ai_video_limit || 50;
+  if ((userSub.ai_videos_used || 0) >= paidLimit) {
+    return false;
+  }
+
+  if (userSub.subscription_id) {
+    db.prepare("UPDATE user_subscriptions SET ai_videos_used = ai_videos_used + 1 WHERE id = ?").run(userSub.subscription_id);
+  }
   return true;
 })();
 

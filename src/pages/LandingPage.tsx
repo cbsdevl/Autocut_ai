@@ -28,6 +28,9 @@ import {
 } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
 import { GooglePayMark } from "../components/payments/GooglePayMark";
+const heroWorkspaceImg = "/assets/images/hero_editor_workspace_1792169564335.jpg";
+const audioWaveformConsoleImg = "/assets/images/audio_waveform_console_1792169564753.jpg";
+const creatorReviewImg = "/assets/images/creator_filmmaker_review_1792169564553.jpg";
 
 export const LandingPage: React.FC = () => {
   const { currentUser } = useAuth();
@@ -285,7 +288,14 @@ export const LandingPage: React.FC = () => {
         <div className="mt-12 sm:mt-16 rounded-2xl border border-white/[0.08] overflow-hidden bg-[#12141c] shadow-2xl relative">
           <div className="relative aspect-[16/9] w-full overflow-hidden">
             <img
-              src="/src/assets/images/hero_editor_workspace_1792169564335.jpg"
+              src={heroWorkspaceImg}
+              onError={(e) => {
+                const t = e.currentTarget;
+                if (!t.dataset.fallback) {
+                  t.dataset.fallback = "true";
+                  t.src = "/assets/images/hero_editor_workspace_1792169564335.jpg";
+                }
+              }}
               alt="Professional AutoCut AI video editing studio workspace with ultra-wide waveform monitor"
               referrerPolicy="no-referrer"
               className="w-full h-full object-cover object-center"
@@ -645,7 +655,14 @@ export const LandingPage: React.FC = () => {
             {/* Authentic Spectrogram Console Thumbnail */}
             <div className="rounded-xl overflow-hidden border border-white/[0.08] relative aspect-[4/3] bg-zinc-950">
               <img
-                src="/src/assets/images/audio_waveform_console_1792169564753.jpg"
+                src={audioWaveformConsoleImg}
+                onError={(e) => {
+                  const t = e.currentTarget;
+                  if (!t.dataset.fallback) {
+                    t.dataset.fallback = "true";
+                    t.src = "/assets/images/audio_waveform_console_1792169564753.jpg";
+                  }
+                }}
                 alt="Audio spectrogram console showing safe frequency ranges and Content ID verification"
                 referrerPolicy="no-referrer"
                 className="w-full h-full object-cover"
@@ -766,7 +783,14 @@ export const LandingPage: React.FC = () => {
           {/* Left: Authentic Editorial Imagery */}
           <div className="relative aspect-[4/3] lg:aspect-auto h-full min-h-[340px]">
             <img
-              src="/src/assets/images/creator_filmmaker_review_1792169564553.jpg"
+              src={creatorReviewImg}
+              onError={(e) => {
+                const t = e.currentTarget;
+                if (!t.dataset.fallback) {
+                  t.dataset.fallback = "true";
+                  t.src = "/assets/images/creator_filmmaker_review_1792169564553.jpg";
+                }
+              }}
               alt="Editorial portrait of video creator editing YouTube episode in studio"
               referrerPolicy="no-referrer"
               className="w-full h-full object-cover object-center"
